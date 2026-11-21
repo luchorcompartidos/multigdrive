@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'accounts.dart';
 import 'actions.dart';
 import 'analyzer.dart';
+import 'audit.dart';
 import 'background.dart';
 import 'history.dart';
 import 'balancer.dart';
@@ -540,6 +541,9 @@ class _HomePageState extends State<HomePage> {
             onSelected: (v) {
               if (v == 'ajustes') {
                 _showSettings();
+              } else if (v == 'auditoria') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const AuditPage()));
               } else if (v == 'historial') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
@@ -549,6 +553,10 @@ class _HomePageState extends State<HomePage> {
               PopupMenuItem(
                   value: 'historial',
                   child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
+              PopupMenuItem(
+                  value: 'auditoria',
+                  child: ListTile(
+                      leading: Icon(Icons.policy_outlined), title: Text('Auditoría de compartidos'))),
               PopupMenuItem(
                   value: 'ajustes',
                   child: ListTile(leading: Icon(Icons.settings), title: Text('Ajustes'))),

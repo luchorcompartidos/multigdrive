@@ -62,6 +62,11 @@ class DriveActions {
     indexChanged.value++;
   }
 
+  /// Llamada genérica a la API de Drive con el token de la cuenta.
+  static Future<Map<String, dynamic>> api(Account a, String method, String path,
+          {Map<String, String>? query, Object? body}) =>
+      _call(a, method, path, query: query, body: body);
+
   static Future<void> _changed(String email) async {
     if (deferChanges) {
       _pending.add(email);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,6 +13,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Web: al volver de Google, el acceso viene en la dirección.
   final pending = auth.consumeRedirectResult();
+  await auth.initAuth();
   final store = AccountStore();
   await store.load();
   runApp(MultiGDriveApp(store: store, pending: pending));
@@ -50,13 +53,20 @@ class _HomePageState extends State<HomePage> {
 
   AccountStore get store => widget.store;
 
-  bool get _configOk => auth.isWeb
-      ? Config.webClientId.isNotEmpty
-      : Config.desktopClientId.isNotEmpty && Config.desktopClientSecret.isNotEmpty;
+  bool get _configOk => auth.configOk();
+  StreamSubscription<auth.AuthResult>? _sub;
 
   @override
   void initState() {
     super.initState();
+    // Android: la cuenta vuelve desde el navegador.
+    _sub = auth.authResults.listen(
+      (r) => _run(() async {
+        final a = await store.addFromAuth(r);
+        _snack('Cuenta conectada: ${a.email}');
+      }),
+      onError: (Object e) => _snack('Error: $e'),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.pending != null) {
         await _run(() => store.addFromAuth(widget.pending!));
@@ -64,6 +74,16 @@ class _HomePageState extends State<HomePage> {
         await _refreshAll();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  void _snack(String text) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   Future<void> _run(Future<void> Function() task) async {

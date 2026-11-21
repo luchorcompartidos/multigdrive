@@ -94,6 +94,7 @@ jobs:
           channel: stable
           cache: true
       - run: $FLUTTER_CREATE --platforms=web .
+      - run: python3 tool/patch_platforms.py web
       - name: Compilar web
         run: |
           flutter pub get
@@ -125,12 +126,10 @@ jobs:
           channel: stable
           cache: true
       - run: $FLUTTER_CREATE --platforms=android .
-      - name: Permiso de Internet y nombre de la app
+      - name: Permiso de Internet, nombre y vuelta del inicio de sesión
         run: |
-          M=android/app/src/main/AndroidManifest.xml
-          grep -q "android.permission.INTERNET" "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET" />\n    <application#' "$M"
-          sed -i 's#android:label="[^"]*"#android:label="Multi G-DRIVE"#' "$M"
-          grep -n "INTERNET\|android:label" "$M"
+          python3 tool/patch_platforms.py android
+          cat android/app/src/main/AndroidManifest.xml
       - name: Compilar APK
         run: |
           flutter pub get
@@ -138,7 +137,7 @@ jobs:
             --build-name=${{ needs.version.outputs.number }} \
             --build-number=${{ needs.version.outputs.code }} \
             --dart-define=APP_VERSION=$VERSION \
-            --dart-define=DESKTOP_CLIENT_SECRET=${{ secrets.DESKTOP_CLIENT_SECRET }}
+            --dart-define=WEB_CLIENT_SECRET=${{ secrets.WEB_CLIENT_SECRET }}
           mkdir -p out
           cp build/app/outputs/flutter-apk/app-release.apk "out/multigdrive-v${VERSION}.apk"
       - uses: actions/upload-artifact@v4

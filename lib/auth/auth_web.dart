@@ -5,6 +5,12 @@ import 'auth_result.dart';
 
 const bool isWeb = true;
 
+Future<void> initAuth() async {}
+
+Stream<AuthResult> get authResults => const Stream.empty();
+
+bool configOk() => Config.webClientId.isNotEmpty;
+
 String _redirectUri() {
   final l = web.window.location;
   return '${l.origin}${l.pathname}';

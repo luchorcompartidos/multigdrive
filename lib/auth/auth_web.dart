@@ -17,14 +17,15 @@ String _redirectUri() {
 }
 
 /// Redirige a Google; al volver, [consumeRedirectResult] toma el acceso.
-Future<AuthResult?> signInNewAccount() async {
+Future<AuthResult?> signInNewAccount({String scope = Config.scope}) async {
   final state = randomString(24);
   web.window.sessionStorage.setItem('mgd_state', state);
   final url = Uri.https('accounts.google.com', '/o/oauth2/v2/auth', {
     'client_id': Config.webClientId,
     'redirect_uri': _redirectUri(),
     'response_type': 'token',
-    'scope': Config.scope,
+    'scope': scope,
+    'include_granted_scopes': 'true',
     'state': state,
     'prompt': 'select_account',
   });

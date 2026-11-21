@@ -16,6 +16,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'gmail.dart';
 import 'offline.dart';
 import 'side_tree.dart';
 import 'platform/platform.dart' as platform;
@@ -544,6 +545,9 @@ class _HomePageState extends State<HomePage> {
               } else if (v == 'auditoria') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const AuditPage()));
+              } else if (v == 'gmail') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const GmailPage()));
               } else if (v == 'historial') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
@@ -553,6 +557,10 @@ class _HomePageState extends State<HomePage> {
               PopupMenuItem(
                   value: 'historial',
                   child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
+              PopupMenuItem(
+                  value: 'gmail',
+                  child: ListTile(
+                      leading: Icon(Icons.mark_email_unread_outlined), title: Text('Gmail pesado'))),
               PopupMenuItem(
                   value: 'auditoria',
                   child: ListTile(

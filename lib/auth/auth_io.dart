@@ -78,12 +78,13 @@ Future<AuthResult> _exchange(String code, String verifier, String redirect) asyn
   return AuthResult.fromToken(jsonDecode(res.body) as Map<String, dynamic>);
 }
 
-Uri _authUrl(String redirect, String verifier, String state) =>
+Uri _authUrl(String redirect, String verifier, String state, String scope) =>
     Uri.https('accounts.google.com', '/o/oauth2/v2/auth', {
       'client_id': _clientId,
       'redirect_uri': redirect,
       'response_type': 'code',
-      'scope': Config.scope,
+      'scope': scope,
+      'include_granted_scopes': 'true',
       'code_challenge': _challenge(verifier),
       'code_challenge_method': 'S256',
       'state': state,
@@ -93,13 +94,13 @@ Uri _authUrl(String redirect, String verifier, String state) =>
 
 /// Abre el navegador para elegir una cuenta de Google.
 /// En Windows devuelve la cuenta; en Android llega luego por [authResults].
-Future<AuthResult?> signInNewAccount() async {
+Future<AuthResult?> signInNewAccount({String scope = Config.scope}) async {
   final verifier = randomString(64);
   if (Platform.isAndroid) {
     final state = 'a_${randomString(24)}';
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_pkceKey, jsonEncode({'state': state, 'verifier': verifier}));
-    await launchUrl(_authUrl(Config.webRedirect, verifier, state),
+    await launchUrl(_authUrl(Config.webRedirect, verifier, state, scope),
         mode: LaunchMode.externalApplication);
     return null;
   }
@@ -126,7 +127,7 @@ Future<AuthResult?> signInNewAccount() async {
   });
 
   try {
-    await launchUrl(_authUrl(redirect, verifier, state), mode: LaunchMode.externalApplication);
+    await launchUrl(_authUrl(redirect, verifier, state, scope), mode: LaunchMode.externalApplication);
     final q = await completer.future.timeout(const Duration(minutes: 5));
     if (q['state'] != state || q['code'] == null) return null;
     return await _exchange(q['code']!, verifier, redirect);

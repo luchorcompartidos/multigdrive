@@ -15,4 +15,8 @@ class Config {
 
   /// Drive completo: leer metadatos y hacer cambios (papelera, mover, copiar).
   static const scope = 'https://www.googleapis.com/auth/drive';
+
+  /// Drive + Gmail (para la sección Gmail pesado; se pide solo si la usás).
+  static const scopeWithGmail =
+      'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.modify';
 }

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'accounts.dart';
 import 'actions.dart';
 import 'drive_index.dart';
+import 'offline.dart';
 import 'side_tree.dart';
 
 enum SortBy { size, name, date }
@@ -72,6 +73,7 @@ void showItemDetails(BuildContext context, Account account, AccountIndex idx, Dr
                 icon: const Icon(Icons.open_in_new),
                 label: const Text('Abrir en Drive'),
               ),
+            ...offlineButtons(context, account, idx, it, () => Navigator.pop(ctx)),
             ...actionButtons(context, account, idx, it, () => Navigator.pop(ctx)),
           ]),
         ]),

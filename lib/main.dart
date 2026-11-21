@@ -11,6 +11,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'offline.dart';
 import 'side_tree.dart';
 import 'platform/platform.dart' as platform;
 import 'updates.dart';
@@ -27,6 +28,7 @@ Future<void> main() async {
   await auth.initAuth();
   final store = AccountStore();
   await store.load();
+  await Offline.load();
   runApp(MultiGDriveApp(store: store, pending: pending));
 }
 
@@ -83,6 +85,7 @@ class _HomePageState extends State<HomePage> {
     DriveActions.store = store;
     DriveActions.indexes = _indexes;
     indexChanged.addListener(_onIndexChange);
+    Offline.changed.addListener(_onIndexChange);
     // Android: la cuenta vuelve desde el navegador.
     _sub = auth.authResults.listen(
       (r) => _run(() async {
@@ -112,6 +115,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     indexChanged.removeListener(_onIndexChange);
+    Offline.changed.removeListener(_onIndexChange);
     _sub?.cancel();
     super.dispose();
   }
@@ -500,6 +504,9 @@ class _HomePageState extends State<HomePage> {
             onExplore: () => _explore(a),
             onIndex: () => _update(a),
             onFullIndex: () => _index(a),
+            offlineCount: Offline.of(a.email).length,
+            onOffline: () => Navigator.push(context,
+                MaterialPageRoute<void>(builder: (_) => OfflinePage(account: a))),
           );
         },
       )),
@@ -654,6 +661,8 @@ class _AccountCard extends StatelessWidget {
   final VoidCallback onExplore;
   final VoidCallback onIndex;
   final VoidCallback onFullIndex;
+  final int offlineCount;
+  final VoidCallback onOffline;
   const _AccountCard({
     super.key,
     required this.index,
@@ -669,6 +678,8 @@ class _AccountCard extends StatelessWidget {
     required this.onExplore,
     required this.onIndex,
     required this.onFullIndex,
+    required this.offlineCount,
+    required this.onOffline,
   });
 
   @override
@@ -778,6 +789,12 @@ class _AccountCard extends StatelessWidget {
                   TextButton(
                     onPressed: indexing ? null : onFullIndex,
                     child: const Text('Reindexar todo'),
+                  ),
+                if (Offline.supported)
+                  TextButton.icon(
+                    onPressed: onOffline,
+                    icon: const Icon(Icons.offline_pin_outlined),
+                    label: Text('Sin conexión ($offlineCount)'),
                   ),
               ]),
             ]),

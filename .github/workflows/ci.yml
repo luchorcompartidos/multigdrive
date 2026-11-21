@@ -115,6 +115,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      MGD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      MGD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -130,6 +133,15 @@ jobs:
         run: |
           python3 tool/patch_platforms.py android
           cat android/app/src/main/AndroidManifest.xml
+      - name: Firma fija del APK
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning title=Sin firma fija::Faltan los Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD y ANDROID_KEY_ALIAS; se firma con una clave de prueba (para actualizar hay que desinstalar)."
+            exit 0
+          fi
+          printf "%s" "$KEYSTORE_B64" | tr -d " \r\n" | base64 -d > "$RUNNER_TEMP/mgd-release.jks"
+          echo "MGD_KEYSTORE_PATH=$RUNNER_TEMP/mgd-release.jks" >> "$GITHUB_ENV"
+          python3 tool/patch_platforms.py signing
       - name: Compilar APK
         run: |
           flutter pub get
@@ -140,6 +152,7 @@ jobs:
             --dart-define=WEB_CLIENT_SECRET=${{ secrets.WEB_CLIENT_SECRET }}
           mkdir -p out
           cp build/app/outputs/flutter-apk/app-release.apk "out/multigdrive-v${VERSION}.apk"
+          "$ANDROID_HOME"/build-tools/$(ls "$ANDROID_HOME"/build-tools | sort -V | tail -1)/apksigner verify --print-certs "out/multigdrive-v${VERSION}.apk" | grep -i "SHA-1" || true
       - uses: actions/upload-artifact@v4
         with:
           name: android
@@ -178,6 +191,16 @@ jobs:
     if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Notas de la versión (commits desde la Release anterior)
+        run: |
+          prev=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          git log ${prev:+$prev..HEAD} --no-merges --pretty='- %s' \
+            | grep -v '\[skip ci\]' | sed -E 's/ *\[(patch|minor|major)\]//' > notas.md || true
+          [ -s notas.md ] || echo "- Compilación nueva" > notas.md
+          cat notas.md
       - uses: actions/download-artifact@v4
         with:
           path: out
@@ -188,5 +211,5 @@ jobs:
           tag_name: v${{ needs.version.outputs.version }}
           name: v${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
-          generate_release_notes: true
+          body_path: notas.md
           files: out/*

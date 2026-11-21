@@ -70,6 +70,35 @@ BOOT_NEW = """<script>
   </script>"""
 
 
+SIGNING = """
+
+// Firma fija (la clave llega desde los Secrets del repo)
+System.getenv("MGD_KEYSTORE_PATH")?.let { ks ->
+    android {
+        signingConfigs {
+            create("mgd") {
+                storeFile = file(ks)
+                storePassword = System.getenv("MGD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MGD_KEY_ALIAS")
+                keyPassword = System.getenv("MGD_KEYSTORE_PASSWORD")
+            }
+        }
+        buildTypes {
+            getByName("release") { signingConfig = signingConfigs.getByName("mgd") }
+        }
+    }
+}
+"""
+
+
+def signing():
+    g = "android/app/build.gradle.kts"
+    s = open(g, encoding="utf-8").read()
+    if "MGD_KEYSTORE_PATH" not in s:
+        open(g, "a", encoding="utf-8").write(SIGNING)
+        print(f"OK {g}")
+
+
 def web():
     i = "web/index.html"
     patch(i, "</head>", HEAD_SCRIPT)
@@ -77,4 +106,4 @@ def web():
 
 
 if __name__ == "__main__":
-    {"android": android, "web": web}[sys.argv[1]]()
+    {"android": android, "web": web, "signing": signing}[sys.argv[1]]()

@@ -171,6 +171,9 @@ jobs:
       - run: flutter create --project-name multigdrive --org com.luchorcompartidos --platforms=windows .
       - name: Compilar .exe
         shell: pwsh
+        env:
+          # el plugin de notificaciones usa una cabecera que MSVC nuevo marca como obsoleta
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
         run: |
           flutter pub get
           flutter build windows --release `

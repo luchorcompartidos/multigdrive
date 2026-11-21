@@ -87,6 +87,61 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
   late final TabController _tab = TabController(length: _tabs.length, vsync: this);
   String? _only; // email filtrado, o todas
   int _years = 3;
+  Set<String>? _sel; // "email|id" seleccionados (null = sin modo selección)
+  final Map<String, FileRef> _refs = {};
+
+  String _k(FileRef f) => '${f.account.email}|${f.item.id}';
+
+  Widget _selectionBar(BuildContext context) {
+    final refs = [for (final k in _sel ?? const <String>{}) if (_refs[k] != null) _refs[k]!];
+    final bytes = refs.fold<int>(0, (s, f) => s + f.item.quota);
+    final inTrash = _tab.index == 4;
+    final pairs = [for (final f in refs) (f.account, f.item)];
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+        child: Row(children: [
+          Expanded(child: Text('${refs.length} seleccionados · ${formatBytes(bytes)}')),
+          FilledButton.tonalIcon(
+            icon: Icon(inTrash ? Icons.restore_from_trash : Icons.delete_outline),
+            label: Text(inTrash ? 'Restaurar' : 'Papelera'),
+            onPressed: refs.isEmpty
+                ? null
+                : () async {
+                    if (!inTrash &&
+                        !await confirm(context, 'Mover a la papelera',
+                            '¿Mandar ${refs.length} archivos (${formatBytes(bytes)}) a la papelera?',
+                            'A la papelera')) {
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    await runBatch(context, inTrash ? 'Restaurando' : 'Mandando a la papelera',
+                        pairs, (a, it) => DriveActions.setTrashed(a, it, !inTrash),
+                        done: inTrash ? 'Restaurados' : 'Enviados a la papelera');
+                    if (mounted) setState(() => _sel = null);
+                  },
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _emptyAllTrash() async {
+    final accounts = DriveActions.store.accounts;
+    if (!await confirm(
+        context,
+        'Vaciar todas las papeleras',
+        'Se borra DEFINITIVAMENTE el contenido de la papelera de las ${accounts.length} cuentas. '
+            'No se puede deshacer.',
+        'Vaciar todas')) {
+      return;
+    }
+    if (!mounted) return;
+    final dummy = DriveItem.virtual(trashId, 'Papelera');
+    await runBatch(context, 'Vaciando papeleras', [for (final a in accounts) (a, dummy)],
+        (a, _) => DriveActions.emptyTrash(a),
+        done: 'Papeleras vaciadas');
+  }
 
   void _onChange() {
     if (mounted) setState(() {});
@@ -96,6 +151,9 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
   void initState() {
     super.initState();
     indexChanged.addListener(_onChange);
+    _tab.addListener(() {
+      if (_sel != null && mounted) setState(() => _sel = null);
+    });
   }
 
   @override
@@ -222,8 +280,17 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
     );
   }
 
-  Widget _fileTile(FileRef f, {bool showAccount = true}) => ListTile(
-        leading: Icon(iconFor(f.item), color: Color(f.account.color)),
+  Widget _fileTile(FileRef f, {bool showAccount = true}) {
+    _refs[_k(f)] = f;
+    final selecting = _sel != null;
+    final k = _k(f);
+    return ListTile(
+        leading: selecting
+            ? Checkbox(
+                value: _sel!.contains(k),
+                onChanged: (v) => setState(() => v == true ? _sel!.add(k) : _sel!.remove(k)),
+              )
+            : Icon(iconFor(f.item), color: Color(f.account.color)),
         title: Text(f.item.name, overflow: TextOverflow.ellipsis),
         subtitle: Text(
           [
@@ -235,9 +302,12 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
           overflow: TextOverflow.ellipsis,
         ),
         trailing: Text(formatBytes(f.item.quota)),
-        onTap: () => showItemDetails(context, f.account, f.index, f.item),
-        onLongPress: () => _openFolderOf(f),
+        onTap: selecting
+            ? () => setState(() => _sel!.contains(k) ? _sel!.remove(k) : _sel!.add(k))
+            : () => showItemDetails(context, f.account, f.index, f.item),
+        onLongPress: selecting ? null : () => _openFolderOf(f),
       );
+  }
 
   Widget _summary(String text) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -328,6 +398,14 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
     return ListView(children: [
       _summary('${l.length} archivos en la papelera ocupan ${formatBytes(sum)}. '
           'Vaciarla en cada cuenta libera ese espacio.'),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.delete_forever),
+          label: const Text('Vaciar las papeleras de todas las cuentas'),
+          onPressed: _emptyAllTrash,
+        ),
+      ),
       for (final f in l.take(_top)) _fileTile(f),
     ]);
   }
@@ -342,6 +420,11 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
         actions: [
           sidebarButton(context),
           IconButton(
+            tooltip: _sel == null ? 'Seleccionar varios' : 'Terminar selección',
+            icon: Icon(_sel == null ? Icons.checklist : Icons.close),
+            onPressed: () => setState(() => _sel = _sel == null ? <String>{} : null),
+          ),
+          IconButton(
             tooltip: 'Exportar esta pestaña a CSV',
             onPressed: indexed.isEmpty ? null : _export,
             icon: const Icon(Icons.download),
@@ -355,6 +438,7 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
         ),
       ),
       drawer: sidebarDrawer(context),
+      bottomNavigationBar: _sel == null ? null : _selectionBar(context),
       body: withSidebar(context, indexed.isEmpty
           ? const Center(
               child: Padding(

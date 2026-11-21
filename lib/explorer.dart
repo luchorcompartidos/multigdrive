@@ -95,6 +95,76 @@ class ExplorerPage extends StatefulWidget {
 class _ExplorerPageState extends State<ExplorerPage> {
   late String _current = widget.startId;
   SortBy _sort = SortBy.size;
+  Set<String>? _sel; // ids seleccionados (null = sin modo selección)
+
+  bool _selectable(DriveItem it) => !it.isVirtual && it.mine;
+
+  void _go(String id) => setState(() {
+        _current = id;
+        _sel = null;
+      });
+
+  List<DriveItem> get _selectedItems =>
+      [for (final id in _sel ?? const <String>{}) if (idx.items[id] != null) idx.items[id]!];
+
+  Widget _selectionBar(BuildContext context) {
+    final items = _selectedItems;
+    final bytes = items.fold<int>(0, (s, it) => s + it.total);
+    final inTrash = items.isNotEmpty && items.every((it) => it.trashed);
+    final pairs = [for (final it in items) (widget.account, it)];
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+        child: Row(children: [
+          Expanded(child: Text('${items.length} seleccionados · ${formatBytes(bytes)}')),
+          if (inTrash)
+            FilledButton.tonalIcon(
+              icon: const Icon(Icons.restore_from_trash),
+              label: const Text('Restaurar'),
+              onPressed: () async {
+                await runBatch(context, 'Restaurando', pairs,
+                    (a, it) => DriveActions.setTrashed(a, it, false),
+                    done: 'Restaurados');
+                if (mounted) setState(() => _sel = null);
+              },
+            )
+          else ...[
+            IconButton(
+              tooltip: 'Mover a otra carpeta',
+              icon: const Icon(Icons.drive_file_move_outline),
+              onPressed: items.isEmpty
+                  ? null
+                  : () async {
+                      final dest = await pickFolderFor(context, idx, items);
+                      if (dest == null || !context.mounted) return;
+                      await runBatch(context, 'Moviendo', pairs,
+                          (a, it) => DriveActions.move(a, it, dest), done: 'Movidos');
+                      if (mounted) setState(() => _sel = null);
+                    },
+            ),
+            FilledButton.tonalIcon(
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Papelera'),
+              onPressed: items.isEmpty
+                  ? null
+                  : () async {
+                      if (!await confirm(context, 'Mover a la papelera',
+                          '¿Mandar ${items.length} elementos (${formatBytes(bytes)}) a la papelera?',
+                          'A la papelera')) {
+                        return;
+                      }
+                      if (!context.mounted) return;
+                      await runBatch(context, 'Mandando a la papelera', pairs,
+                          (a, it) => DriveActions.setTrashed(a, it, true),
+                          done: 'Enviados a la papelera');
+                      if (mounted) setState(() => _sel = null);
+                    },
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
 
   AccountIndex get idx => widget.index;
 
@@ -149,15 +219,35 @@ class _ExplorerPageState extends State<ExplorerPage> {
     final t = Theme.of(context).textTheme;
 
     return PopScope(
-      canPop: _current == topId,
+      canPop: _current == topId && _sel == null,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _up();
+        if (didPop) return;
+        if (_sel != null) {
+          setState(() => _sel = null);
+        } else {
+          _up();
+        }
       },
       child: Scaffold(
         appBar: AppBar(
           title: Text(widget.account.title, overflow: TextOverflow.ellipsis),
           actions: [
             sidebarButton(context),
+            if (_current != topId)
+              IconButton(
+                tooltip: _sel == null ? 'Seleccionar varios' : 'Terminar selección',
+                icon: Icon(_sel == null ? Icons.checklist : Icons.close),
+                onPressed: () => setState(() => _sel = _sel == null ? <String>{} : null),
+              ),
+            if (_sel != null)
+              IconButton(
+                tooltip: 'Seleccionar todo',
+                icon: const Icon(Icons.select_all),
+                onPressed: () => setState(() => _sel = {
+                      for (final it in _entries())
+                        if (_selectable(it)) it.id
+                    }),
+              ),
             PopupMenuButton<SortBy>(
               tooltip: 'Ordenar',
               icon: const Icon(Icons.sort),
@@ -172,6 +262,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
           ],
         ),
         drawer: sidebarDrawer(context),
+        bottomNavigationBar: _sel == null ? null : _selectionBar(context),
         body: withSidebar(context, Column(children: [
           SizedBox(
             height: 48,
@@ -180,12 +271,12 @@ class _ExplorerPageState extends State<ExplorerPage> {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               children: [
                 TextButton(
-                    onPressed: () => setState(() => _current = topId),
+                    onPressed: () => _go(topId),
                     child: const Text('Ubicaciones')),
                 for (final p in path) ...[
                   const Icon(Icons.chevron_right, size: 18),
                   TextButton(
-                    onPressed: () => setState(() => _current = p.id),
+                    onPressed: () => _go(p.id),
                     child: Text(p.name, overflow: TextOverflow.ellipsis),
                   ),
                 ],
@@ -246,9 +337,16 @@ class _ExplorerPageState extends State<ExplorerPage> {
                       final it = entries[i];
                       final parentTotal = here?.total ?? 0;
                       final share = (parentTotal > 0 && it.isFolder) ? it.total / parentTotal : null;
+                      final selecting = _sel != null && _selectable(it);
                       return ListTile(
-                        leading: Icon(iconFor(it),
-                            color: it.isFolder ? Theme.of(context).colorScheme.primary : null),
+                        leading: selecting
+                            ? Checkbox(
+                                value: _sel!.contains(it.id),
+                                onChanged: (v) => setState(
+                                    () => v == true ? _sel!.add(it.id) : _sel!.remove(it.id)),
+                              )
+                            : Icon(iconFor(it),
+                                color: it.isFolder ? Theme.of(context).colorScheme.primary : null),
                         title: Text(it.name, overflow: TextOverflow.ellipsis),
                         subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text([
@@ -263,9 +361,12 @@ class _ExplorerPageState extends State<ExplorerPage> {
                             ),
                         ]),
                         trailing: Text(formatBytes(it.shownSize)),
-                        onTap: it.isFolder
-                            ? () => setState(() => _current = it.id)
-                            : () => showItemDetails(context, widget.account, idx, it),
+                        onTap: selecting
+                            ? () => setState(() =>
+                                _sel!.contains(it.id) ? _sel!.remove(it.id) : _sel!.add(it.id))
+                            : it.isFolder
+                                ? () => _go(it.id)
+                                : () => showItemDetails(context, widget.account, idx, it),
                         onLongPress: () =>
                             showItemDetails(context, widget.account, idx, it),
                       );

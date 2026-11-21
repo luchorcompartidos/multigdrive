@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'accounts.dart';
 import 'auth/auth.dart' as auth;
 import 'config.dart';
+import 'drive_index.dart';
+import 'explorer.dart';
 import 'platform/platform.dart' as platform;
 import 'updates.dart';
 
@@ -58,6 +60,7 @@ class _HomePageState extends State<HomePage> {
   bool _busy = false;
   StreamSubscription<auth.AuthResult>? _sub;
   List<ReleaseInfo> _releases = [];
+  final IndexStore _indexes = IndexStore();
 
   AccountStore get store => widget.store;
 
@@ -84,6 +87,9 @@ class _HomePageState extends State<HomePage> {
       } else {
         await _refreshAll();
       }
+    });
+    _indexes.loadAll(store.accounts.map((a) => a.email)).then((_) {
+      if (mounted) setState(() {});
     });
     Updates.fetch().then((r) {
       if (mounted) setState(() => _releases = r);
@@ -124,6 +130,50 @@ class _HomePageState extends State<HomePage> {
           _snack('Cuenta conectada: ${a.email}');
         }
       });
+
+  Future<void> _index(Account a) async {
+    if (_indexes.progress.containsKey(a.email)) return;
+    try {
+      final idx = await _indexes.build(a.email, () => store.tokenFor(a), () {
+        if (mounted) setState(() {});
+      });
+      _snack('${a.title}: ${idx.fileCount} archivos indexados');
+    } catch (e) {
+      _snack('${a.title}: no se pudo indexar ($e)');
+    }
+  }
+
+  Future<void> _indexAll() async {
+    for (final a in List.of(store.accounts)) {
+      await _index(a);
+    }
+  }
+
+  void _explore(Account a) {
+    final idx = _indexes.loaded[a.email];
+    if (idx == null) {
+      _index(a);
+      return;
+    }
+    Navigator.push(context,
+        MaterialPageRoute<void>(builder: (_) => ExplorerPage(account: a, index: idx)));
+  }
+
+  void _openSearch() {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+          builder: (_) => SearchPage(accounts: store.accounts, indexes: _indexes)),
+    );
+  }
+
+  String? _indexInfo(Account a) {
+    final p = _indexes.progress[a.email];
+    if (p != null) return 'Indexando… $p elementos leídos';
+    final idx = _indexes.loaded[a.email];
+    if (idx == null) return null;
+    return 'Índice: ${idx.fileCount} archivos · ${_fmtDate(idx.date)}';
+  }
 
   void _openUpdate(ReleaseInfo r) {
     final ext = platform.installerExtension();
@@ -266,7 +316,12 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
-    if (ok == true) await _run(() => store.remove(a));
+    if (ok == true) {
+      await _run(() async {
+        await store.remove(a);
+        await _indexes.remove(a.email);
+      });
+    }
   }
 
   @override
@@ -299,8 +354,8 @@ class _HomePageState extends State<HomePage> {
       if (auth.isWeb)
         const _Banner(
           icon: Icons.info_outline,
-          text: 'Versión web limitada: el acceso a cada cuenta dura cerca de 1 hora; '
-              'después hay que volver a conectarla.',
+          text: 'Versión web limitada: el acceso a cada cuenta dura cerca de 1 hora '
+              'y el índice no se guarda al cerrar la página.',
         ),
       if (accounts.isEmpty)
         const Padding(
@@ -315,7 +370,8 @@ class _HomePageState extends State<HomePage> {
             count: accounts.length,
             quota: total,
             alerts: alerts,
-            alertPercent: store.alertPercent),
+            alertPercent: store.alertPercent,
+            onIndexAll: _indexes.progress.isEmpty ? _indexAll : null),
         const _Legend(),
         if (accounts.length > 1)
           Padding(
@@ -331,6 +387,11 @@ class _HomePageState extends State<HomePage> {
         title: const Text('Multi G-DRIVE'),
         actions: [
           TextButton(onPressed: _showVersion, child: Text('v${Config.appVersion}')),
+          IconButton(
+            tooltip: 'Buscar en todas las cuentas',
+            onPressed: accounts.isEmpty ? null : _openSearch,
+            icon: const Icon(Icons.search),
+          ),
           IconButton(
             tooltip: 'Actualizar',
             onPressed: _busy || accounts.isEmpty ? null : _refreshAll,
@@ -366,6 +427,11 @@ class _HomePageState extends State<HomePage> {
             onEdit: () => _editAccount(a),
             onRemove: () => _confirmRemove(a),
             onReconnect: _addAccount,
+            indexInfo: _indexInfo(a),
+            indexing: _indexes.progress.containsKey(a.email),
+            indexed: _indexes.loaded.containsKey(a.email),
+            onExplore: () => _explore(a),
+            onIndex: () => _index(a),
           );
         },
       ),
@@ -455,11 +521,13 @@ class _TotalCard extends StatelessWidget {
   final Quota quota;
   final int alerts;
   final int alertPercent;
+  final VoidCallback? onIndexAll;
   const _TotalCard(
       {required this.count,
       required this.quota,
       required this.alerts,
-      required this.alertPercent});
+      required this.alertPercent,
+      this.onIndexAll});
 
   @override
   Widget build(BuildContext context) {
@@ -489,6 +557,15 @@ class _TotalCard extends StatelessWidget {
               ),
             ]),
           ],
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onIndexAll,
+              icon: const Icon(Icons.manage_search),
+              label: const Text('Indexar todas'),
+            ),
+          ),
         ]),
       ),
     );
@@ -503,6 +580,11 @@ class _AccountCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onRemove;
   final VoidCallback onReconnect;
+  final String? indexInfo;
+  final bool indexing;
+  final bool indexed;
+  final VoidCallback onExplore;
+  final VoidCallback onIndex;
   const _AccountCard({
     super.key,
     required this.index,
@@ -512,6 +594,11 @@ class _AccountCard extends StatelessWidget {
     required this.onEdit,
     required this.onRemove,
     required this.onReconnect,
+    this.indexInfo,
+    required this.indexing,
+    required this.indexed,
+    required this.onExplore,
+    required this.onIndex,
   });
 
   @override
@@ -602,6 +689,22 @@ class _AccountCard extends StatelessWidget {
                   if (q.free != null) Text('Libre: ${formatBytes(q.free)}'),
                 ]),
               ],
+              const SizedBox(height: 8),
+              if (indexInfo != null) Text(indexInfo!, style: t.bodySmall),
+              if (indexing) const LinearProgressIndicator(minHeight: 3),
+              Wrap(spacing: 8, children: [
+                FilledButton.tonalIcon(
+                  onPressed: indexing ? null : onExplore,
+                  icon: const Icon(Icons.folder_open),
+                  label: Text(indexed ? 'Explorar' : 'Indexar y explorar'),
+                ),
+                if (indexed)
+                  TextButton.icon(
+                    onPressed: indexing ? null : onIndex,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Reindexar'),
+                  ),
+              ]),
             ]),
           ),
         ]),

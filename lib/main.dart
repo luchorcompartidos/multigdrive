@@ -17,6 +17,7 @@ import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
 import 'unified.dart';
+import 'upload.dart';
 import 'mirror.dart';
 import 'evolution.dart';
 import 'rules.dart';
@@ -95,6 +96,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     DriveActions.store = store;
     DriveActions.indexes = _indexes;
+    unifiedUpload = uploadInto;
     indexChanged.addListener(_onIndexChange);
     Offline.changed.addListener(_onIndexChange);
     // Android: la cuenta vuelve desde el navegador.

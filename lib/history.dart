@@ -57,6 +57,7 @@ const _labels = {
   'copy': 'Copiado a otra cuenta',
   'transfer': 'Pasado a otra cuenta',
   'empty': 'Papelera vaciada',
+  'upload': 'Subido',
 };
 
 const _icons = {
@@ -68,6 +69,7 @@ const _icons = {
   'copy': Icons.copy,
   'transfer': Icons.swap_horiz,
   'empty': Icons.delete_forever,
+  'upload': Icons.upload_file,
 };
 
 /// Historial de acciones (se guarda en el equipo, hasta 1000 entradas).
@@ -138,7 +140,7 @@ class History {
           await DriveActions.move(a, _item(e.email, e.id, e.name), e.undo['parent'] as String);
         case 'rename':
           await FolderOps.rename(a, _item(e.email, e.id, e.name), e.undo['name'] as String);
-        case 'create':
+        case 'create' || 'upload':
           await DriveActions.setTrashed(a, _item(e.email, e.id, e.name), true);
         case 'copy':
           final newId = e.undo['newId'] as String;

@@ -67,6 +67,8 @@ class DriveActions {
           {Map<String, String>? query, Object? body}) =>
       _call(a, method, path, query: query, body: body);
 
+  static Future<void> notifyChanged(String email) => _changed(email);
+
   static Future<void> _changed(String email) async {
     if (deferChanges) {
       _pending.add(email);
@@ -519,7 +521,8 @@ Future<Account?> pickAccount(BuildContext context, Account except, String title)
 Future<String?> pickFolder(BuildContext context, AccountIndex idx, DriveItem moving) =>
     pickFolderFor(context, idx, [moving]);
 
-Future<String?> pickFolderFor(BuildContext context, AccountIndex idx, List<DriveItem> moving) =>
+Future<String?> pickFolderFor(BuildContext context, AccountIndex idx, List<DriveItem> moving,
+        {String title = 'Mover a…', String okLabel = 'Mover acá'}) =>
     showDialog<String>(
       context: context,
       builder: (ctx) {
@@ -535,7 +538,7 @@ Future<String?> pickFolderFor(BuildContext context, AccountIndex idx, List<Drive
             ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
           final path = idx.pathTo(current).map((p) => p.name).join(' / ');
           return AlertDialog(
-            title: const Text('Mover a…'),
+            title: Text(title),
             content: SizedBox(
               width: 400,
               height: 360,
@@ -570,7 +573,7 @@ Future<String?> pickFolderFor(BuildContext context, AccountIndex idx, List<Drive
                 onPressed: (sameParent.length == 1 && sameParent.first == current)
                     ? null
                     : () => Navigator.pop(ctx, current),
-                child: const Text('Mover acá'),
+                child: Text(okLabel),
               ),
             ],
           );

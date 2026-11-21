@@ -16,6 +16,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'mirror.dart';
 import 'evolution.dart';
 import 'rules.dart';
 import 'gmail.dart';
@@ -557,6 +558,9 @@ class _HomePageState extends State<HomePage> {
               } else if (v == 'evolucion') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const EvolutionPage()));
+              } else if (v == 'espejo') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const MirrorPage()));
               } else if (v == 'historial') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
@@ -566,6 +570,9 @@ class _HomePageState extends State<HomePage> {
               PopupMenuItem(
                   value: 'historial',
                   child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
+              PopupMenuItem(
+                  value: 'espejo',
+                  child: ListTile(leading: Icon(Icons.copy_all), title: Text('Espejo / respaldo'))),
               PopupMenuItem(
                   value: 'evolucion',
                   child: ListTile(leading: Icon(Icons.show_chart), title: Text('Evolución del uso'))),

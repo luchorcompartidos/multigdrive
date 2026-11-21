@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'accounts.dart';
 import 'actions.dart';
 import 'analyzer.dart';
+import 'background.dart';
 import 'balancer.dart';
 import 'auth/auth.dart' as auth;
 import 'config.dart';
@@ -30,6 +32,7 @@ Future<void> main() async {
   final store = AccountStore();
   await store.load();
   await Offline.load();
+  Background.setup();
   runApp(MultiGDriveApp(store: store, pending: pending));
 }
 
@@ -303,8 +306,10 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _showSettings() {
+  Future<void> _showSettings() async {
     var value = store.alertPercent.toDouble();
+    var daily = (await SharedPreferences.getInstance()).getBool(Background.enabledKey) ?? true;
+    if (!mounted) return;
     showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -320,12 +325,21 @@ class _HomePageState extends State<HomePage> {
               label: '${value.round()} %',
               onChanged: (v) => setLocal(() => value = v),
             ),
+            if (Background.supported)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Revisión diaria con la app cerrada'),
+                subtitle: const Text('Notifica si alguna cuenta supera ese %'),
+                value: daily,
+                onChanged: (v) => setLocal(() => daily = v),
+              ),
           ]),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
             FilledButton(
               onPressed: () async {
                 await store.setAlertPercent(value.round());
+                if (Background.supported) await Background.setEnabled(daily);
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) setState(() {});
               },

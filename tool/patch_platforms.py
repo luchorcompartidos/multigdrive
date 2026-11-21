@@ -26,6 +26,10 @@ def android():
     import re
     s = re.sub(r'android:label="[^"]*"', 'android:label="Multi G-DRIVE"', s, count=1)
     open(m, "w", encoding="utf-8").write(s)
+    s = open(m, encoding="utf-8").read()
+    if "POST_NOTIFICATIONS" not in s:
+        patch(m, "<application", '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <application')
+    desugar()
     # Vuelta del inicio de sesión: com.luchorcompartidos.multigdrive://oauth
     patch(m, "</activity>", f"""    <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
             <intent-filter>
@@ -89,6 +93,28 @@ System.getenv("MGD_KEYSTORE_PATH")?.let { ks ->
     }
 }
 """
+
+
+DESUGAR = """
+
+// Notificaciones (flutter_local_notifications necesita desugaring)
+android {
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+    }
+}
+dependencies {
+    "coreLibraryDesugaring"("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+"""
+
+
+def desugar():
+    g = "android/app/build.gradle.kts"
+    s = open(g, encoding="utf-8").read()
+    if "isCoreLibraryDesugaringEnabled" not in s:
+        open(g, "a", encoding="utf-8").write(DESUGAR)
+        print(f"OK {g}")
 
 
 def signing():

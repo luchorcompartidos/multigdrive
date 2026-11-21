@@ -107,6 +107,30 @@ class DriveActions {
     await _changed(a.email);
   }
 
+  /// Crea una planilla de Google Sheets (en Mi unidad) a partir de un CSV. Devuelve su link.
+  static Future<String> createSheet(Account a, String name, String csv) async {
+    const boundary = 'mgd-boundary-7d1f';
+    final meta = jsonEncode({'name': name, 'mimeType': 'application/vnd.google-apps.spreadsheet'});
+    final body = '--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n'
+        '--$boundary\r\nContent-Type: text/csv; charset=UTF-8\r\n\r\n$csv\r\n--$boundary--';
+    final res = await http.post(
+      Uri.https('www.googleapis.com', '/upload/drive/v3/files',
+          {'uploadType': 'multipart', 'fields': 'id,webViewLink'}),
+      headers: {
+        'Authorization': 'Bearer ${await store.tokenFor(a)}',
+        'Content-Type': 'multipart/related; boundary=$boundary',
+      },
+      body: utf8.encode(body),
+    );
+    if (res.statusCode == 403 &&
+        (res.body.contains('insufficient') || res.body.contains('SCOPE_INSUFFICIENT'))) {
+      throw NeedsMorePermission();
+    }
+    if (res.statusCode != 200) throw Exception('Drive respondió ${res.statusCode}');
+    final j = jsonDecode(res.body) as Map<String, dynamic>;
+    return (j['webViewLink'] as String?) ?? 'https://docs.google.com/spreadsheets/d/${j['id']}';
+  }
+
   /// Copia un archivo a "Mi unidad" de otra cuenta (y opcionalmente lo manda a la papelera).
   /// Se comparte un momento como lector con la cuenta destino, que hace la copia.
   static Future<void> copyToAccount(Account from, DriveItem it, Account to,

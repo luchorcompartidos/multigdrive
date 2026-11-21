@@ -140,7 +140,51 @@ class _HomePageState extends State<HomePage> {
         for (final a in List.of(store.accounts)) {
           await store.refreshQuota(a);
         }
+        _quotaAlert();
       });
+
+  bool _alertShown = false;
+
+  /// Aviso de cuota al abrir la app, si alguna cuenta supera el % configurado.
+  void _quotaAlert() {
+    if (_alertShown || !mounted) return;
+    final over = store.accounts.where(store.overAlert).toList();
+    if (over.isEmpty) return;
+    _alertShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.warning_amber),
+          title: const Text('Cuentas casi llenas'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Text('Superan el ${store.alertPercent} % de uso:'),
+            const SizedBox(height: 8),
+            for (final a in over)
+              Text('• ${a.title}: ${(a.quota!.ratio! * 100).round()} % '
+                  '(libre ${formatBytes(a.quota!.free)})'),
+            const SizedBox(height: 8),
+            const Text('El Analizador te ayuda a encontrar qué limpiar.'),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendido')),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) => AnalyzerPage(accounts: store.accounts, indexes: _indexes)));
+              },
+              child: const Text('Abrir Analizador'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
 
   Future<void> _addAccount() => _run(() async {
         final r = await auth.signInNewAccount();

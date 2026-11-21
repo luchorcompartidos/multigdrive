@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'accounts.dart';
 import 'actions.dart';
@@ -54,17 +55,17 @@ String typeOf(DriveItem it) {
   return 'Otros';
 }
 
-String _csvCell(Object? v) {
+String _csvCell(Object? v, [String sep = ';']) {
   final s = '${v ?? ''}';
-  return (s.contains(';') || s.contains('"') || s.contains('\n'))
+  return (s.contains(sep) || s.contains(',') || s.contains('"') || s.contains('\n'))
       ? '"${s.replaceAll('"', '""')}"'
       : s;
 }
 
-String _csv(List<String> header, Iterable<List<Object?>> rows) {
-  final b = StringBuffer()..writeln(header.map(_csvCell).join(';'));
+String _csv(List<String> header, Iterable<List<Object?>> rows, {String sep = ';'}) {
+  final b = StringBuffer()..writeln(header.map((c) => _csvCell(c, sep)).join(sep));
   for (final r in rows) {
-    b.writeln(r.map(_csvCell).join(';'));
+    b.writeln(r.map((c) => _csvCell(c, sep)).join(sep));
   }
   return b.toString();
 }
@@ -217,10 +218,8 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
   List<FileRef> _trash() =>
       _files(trashed: true).toList()..sort((x, y) => y.item.quota.compareTo(x.item.quota));
 
-  Future<void> _export() async {
-    final day = DateTime.now();
-    final stamp = '${day.year}${day.month.toString().padLeft(2, '0')}'
-        '${day.day.toString().padLeft(2, '0')}';
+  /// Datos de la pestaña actual: nombre, encabezado y filas (MB con coma decimal).
+  (String, List<String>, List<List<Object?>>) _table() {
     List<Object?> fileRow(FileRef f) => [
           f.account.email,
           f.item.name,
@@ -231,14 +230,10 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
           'https://drive.google.com/open?id=${f.item.id}',
         ];
     const fileHeader = ['Cuenta', 'Nombre', 'Tipo', 'MB', 'Modificado', 'Ubicación', 'Link'];
-    String name;
-    String content;
     switch (_tab.index) {
       case 0:
-        name = 'mas-pesados';
-        content = _csv(fileHeader, _heaviest().map(fileRow));
+        return ('mas-pesados', fileHeader, _heaviest().map(fileRow).toList());
       case 1:
-        name = 'duplicados';
         final rows = <List<Object?>>[];
         var g = 0;
         for (final d in _duplicates()) {
@@ -247,26 +242,66 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
             rows.add([g, _mb(d.recoverable), ...fileRow(f)]);
           }
         }
-        content = _csv(['Grupo', 'MB recuperables', ...fileHeader], rows);
+        return ('duplicados', ['Grupo', 'MB recuperables', ...fileHeader], rows);
       case 2:
-        name = 'por-tipo';
-        content = _csv(['Tipo', 'Archivos', 'MB'],
-            _byType().map((t) => [t.type, t.count, _mb(t.bytes)]));
+        return ('por-tipo', ['Tipo', 'Archivos', 'MB'],
+            _byType().map((t) => <Object?>[t.type, t.count, _mb(t.bytes)]).toList());
       case 3:
-        name = 'viejos-$_years-anios';
-        content = _csv(fileHeader, _old().map(fileRow));
+        return ('viejos-$_years-anios', fileHeader, _old().map(fileRow).toList());
       default:
-        name = 'papelera';
-        content = _csv(fileHeader, _trash().map(fileRow));
+        return ('papelera', fileHeader, _trash().map(fileRow).toList());
     }
+  }
+
+  Future<void> _export() async {
+    final day = DateTime.now();
+    final stamp = '${day.year}${day.month.toString().padLeft(2, '0')}'
+        '${day.day.toString().padLeft(2, '0')}';
+    final target = await showModalBottomSheet<Object>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('Archivo CSV en este equipo'),
+            onTap: () => Navigator.pop(ctx, 'csv'),
+          ),
+          for (final a in DriveActions.store.accounts)
+            ListTile(
+              leading: const Icon(Icons.table_chart_outlined),
+              title: Text('Google Sheets en ${a.title}'),
+              subtitle: const Text('Se crea una planilla nueva en Mi unidad'),
+              onTap: () => Navigator.pop(ctx, a),
+            ),
+        ]),
+      ),
+    );
+    if (target == null || !mounted) return;
+    final (name, header, rows) = _table();
+    final fileName = 'multigdrive-$name-$stamp';
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      final msg = await platform.saveCsv('multigdrive-$name-$stamp.csv', content);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
+      if (target is Account) {
+        messenger.showSnackBar(const SnackBar(content: Text('Creando la planilla…')));
+        final url = await DriveActions.createSheet(target, fileName, _csv(header, rows, sep: ','));
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text('Planilla creada en ${target.title}'),
+            action: SnackBarAction(
+                label: 'Abrir',
+                onPressed: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)),
+          ));
+      } else {
+        final msg = await platform.saveCsv('$fileName.csv', _csv(header, rows));
+        messenger.showSnackBar(SnackBar(content: Text(msg)));
       }
+    } catch (e) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
     }
   }
 

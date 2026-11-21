@@ -98,8 +98,11 @@ class _HomePageState extends State<HomePage> {
         await _refreshAll();
       }
     });
-    _indexes.loadAll(store.accounts.map((a) => a.email)).then((_) {
+    _indexes.loadAll(store.accounts.map((a) => a.email)).then((_) async {
       if (mounted) setState(() {});
+      for (final a in List.of(store.accounts)) {
+        if (_indexes.loaded.containsKey(a.email)) await _update(a, quiet: true);
+      }
     });
     Updates.fetch().then((r) {
       if (mounted) setState(() => _releases = r);
@@ -153,6 +156,20 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       _snack('${a.title}: no se pudo indexar ($e)');
     }
+  }
+
+  /// Actualiza el índice con los cambios; si no se puede, lo arma completo.
+  Future<void> _update(Account a, {bool quiet = false}) async {
+    if (_indexes.progress.containsKey(a.email)) return;
+    final n = await _indexes.update(a.email, () => store.tokenFor(a), () {
+      if (mounted) setState(() {});
+    });
+    if (n == null) {
+      if (!quiet) await _index(a);
+      return;
+    }
+    indexChanged.value++;
+    if (!quiet) _snack(n == 0 ? '${a.title}: el índice ya estaba al día' : '${a.title}: $n cambios aplicados');
   }
 
   Future<void> _indexAll() async {
@@ -481,7 +498,8 @@ class _HomePageState extends State<HomePage> {
             indexing: _indexes.progress.containsKey(a.email),
             indexed: _indexes.loaded.containsKey(a.email),
             onExplore: () => _explore(a),
-            onIndex: () => _index(a),
+            onIndex: () => _update(a),
+            onFullIndex: () => _index(a),
           );
         },
       )),
@@ -635,6 +653,7 @@ class _AccountCard extends StatelessWidget {
   final bool indexed;
   final VoidCallback onExplore;
   final VoidCallback onIndex;
+  final VoidCallback onFullIndex;
   const _AccountCard({
     super.key,
     required this.index,
@@ -649,6 +668,7 @@ class _AccountCard extends StatelessWidget {
     required this.indexed,
     required this.onExplore,
     required this.onIndex,
+    required this.onFullIndex,
   });
 
   @override
@@ -752,7 +772,12 @@ class _AccountCard extends StatelessWidget {
                   TextButton.icon(
                     onPressed: indexing ? null : onIndex,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('Reindexar'),
+                    label: const Text('Actualizar índice'),
+                  ),
+                if (indexed)
+                  TextButton(
+                    onPressed: indexing ? null : onFullIndex,
+                    child: const Text('Reindexar todo'),
                   ),
               ]),
             ]),

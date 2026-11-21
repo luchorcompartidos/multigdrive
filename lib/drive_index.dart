@@ -82,12 +82,18 @@ class DriveItem {
 class AccountIndex {
   final String email;
   final String rootId;
-  final DateTime date;
+  DateTime date;
+  String? changeToken; // para actualizar solo lo que cambió
   final Map<String, DriveItem> items;
   final Map<String, List<DriveItem>> children = {};
   final Map<String, String> parentOf = {};
 
-  AccountIndex({required this.email, required this.rootId, required this.date, required this.items}) {
+  AccountIndex(
+      {required this.email,
+      required this.rootId,
+      required this.date,
+      required this.items,
+      this.changeToken}) {
     _build();
   }
 
@@ -176,6 +182,7 @@ class AccountIndex {
         'email': email,
         'rootId': rootId,
         'date': date.toIso8601String(),
+        'changeToken': changeToken,
         'items': [
           for (final i in items.values)
             if (!i.isVirtual) i.toRow()
@@ -194,6 +201,7 @@ class AccountIndex {
       rootId: j['rootId'] as String,
       date: DateTime.parse(j['date'] as String),
       items: items,
+      changeToken: j['changeToken'] as String?,
     );
   }
 }
@@ -237,6 +245,9 @@ class IndexStore {
       final rootJ = await _get(
           Uri.parse('https://www.googleapis.com/drive/v3/files/root?fields=id'), token);
       final rootId = rootJ['id'] as String;
+      final startJ = await _get(
+          Uri.parse('https://www.googleapis.com/drive/v3/changes/startPageToken'), token);
+      final changeToken = startJ['startPageToken'] as String?;
       final items = <String, DriveItem>{};
       String? page;
       do {
@@ -258,10 +269,71 @@ class IndexStore {
         progress[email] = items.length;
         onProgress();
       } while (page != null);
-      final idx = AccountIndex(email: email, rootId: rootId, date: DateTime.now(), items: items);
+      final idx = AccountIndex(
+          email: email,
+          rootId: rootId,
+          date: DateTime.now(),
+          items: items,
+          changeToken: changeToken);
       await storage.saveIndex(email, idx.toJson());
       loaded[email] = idx;
       return idx;
+    } finally {
+      progress.remove(email);
+      onProgress();
+    }
+  }
+
+  /// Actualiza el índice leyendo solo los cambios desde la última vez.
+  /// Devuelve cuántos elementos cambiaron, o null si hace falta reindexar completo.
+  Future<int?> update(String email, Future<String> Function() token, void Function() onProgress) async {
+    final idx = loaded[email];
+    if (idx == null || idx.changeToken == null) return null;
+    progress[email] = 0;
+    onProgress();
+    try {
+      var page = idx.changeToken!;
+      var changed = 0;
+      while (true) {
+        final j = await _get(
+          Uri.https('www.googleapis.com', '/drive/v3/changes', {
+            'pageToken': page,
+            'pageSize': '1000',
+            'spaces': 'drive',
+            'includeRemoved': 'true',
+            'fields': 'nextPageToken,newStartPageToken,'
+                'changes(fileId,removed,file($fileFields))',
+          }),
+          token,
+        );
+        for (final c in (j['changes'] as List? ?? [])) {
+          final m = c as Map<String, dynamic>;
+          final id = m['fileId'] as String?;
+          if (id == null) continue;
+          final f = m['file'] as Map<String, dynamic>?;
+          if (m['removed'] == true || f == null) {
+            idx.items.remove(id);
+          } else {
+            idx.items[id] = DriveItem.fromApi(f);
+          }
+          changed++;
+        }
+        progress[email] = changed;
+        onProgress();
+        final next = j['nextPageToken'] as String?;
+        if (next != null) {
+          page = next;
+          continue;
+        }
+        idx.changeToken = (j['newStartPageToken'] as String?) ?? page;
+        break;
+      }
+      idx.date = DateTime.now();
+      if (changed > 0) idx.rebuild();
+      await storage.saveIndex(email, idx.toJson());
+      return changed;
+    } on Exception {
+      return null;
     } finally {
       progress.remove(email);
       onProgress();

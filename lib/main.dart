@@ -358,6 +358,31 @@ class _HomePageState extends State<HomePage> {
           text: 'Versión web limitada: el acceso a cada cuenta dura cerca de 1 hora '
               'y el índice no se guarda al cerrar la página.',
         ),
+      if (auth.isWeb && _releases.isNotEmpty)
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Instalá la app completa (v${_releases.first.version})',
+                  style: Theme.of(context).textTheme.titleSmall),
+              const Text('Guarda las cuentas y el índice, sin reconectar cada hora.'),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final (label, ext, icon) in [
+                  ('Android (APK)', '.apk', Icons.android),
+                  ('Windows (.zip)', '.zip', Icons.desktop_windows),
+                ])
+                  if (_releases.first.assetEndingWith(ext) != null)
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          launchUrl(Uri.parse(_releases.first.assetEndingWith(ext)!)),
+                      icon: Icon(icon),
+                      label: Text(label),
+                    ),
+              ]),
+            ]),
+          ),
+        ),
       if (accounts.isEmpty)
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 48),

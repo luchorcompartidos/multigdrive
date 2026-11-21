@@ -6,7 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Extensión del instalador que corresponde a este equipo.
-String installerExtension() => Platform.isAndroid ? '.apk' : '.zip';
+String installerExtension() => Platform.isAndroid ? '.apk' : '.exe';
 
 /// Solo aplica a la web.
 void reloadPage() {}

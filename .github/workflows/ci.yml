@@ -182,10 +182,27 @@ jobs:
             --dart-define=DESKTOP_CLIENT_SECRET=${{ secrets.DESKTOP_CLIENT_SECRET }}
           New-Item -ItemType Directory -Force out | Out-Null
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath "out\multigdrive-windows-v$env:VERSION.zip"
+      - name: Instalador (.exe)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress | Out-Null
+          }
+          & $iscc /Qp `
+            "/DAppVersion=${{ needs.version.outputs.number }}" `
+            "/DAppVersionFull=$env:VERSION" `
+            "/DSourceDir=$PWD\build\windows\x64\runner\Release" `
+            "/DOutputDir=$PWD\out" `
+            installer\multigdrive.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup falló ($LASTEXITCODE)" }
+          Get-ChildItem out
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: out/*.zip
+          path: |
+            out/*.zip
+            out/*.exe
 
   release:
     needs: [version, android, windows]

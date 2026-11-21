@@ -381,7 +381,7 @@ class _HomePageState extends State<HomePage> {
               Wrap(spacing: 8, runSpacing: 8, children: [
                 for (final (label, ext, icon) in [
                   ('Android (APK)', '.apk', Icons.android),
-                  ('Windows (.zip)', '.zip', Icons.desktop_windows),
+                  ('Windows (instalador)', '.exe', Icons.desktop_windows),
                 ])
                   if (_releases.first.assetEndingWith(ext) != null)
                     OutlinedButton.icon(

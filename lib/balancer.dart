@@ -42,6 +42,9 @@ final Map<MoveMethod, MoveRunner> moveRunners = {
     progress(r);
     return r;
   },
+  // E16: mover sin duplicar (pasar la propiedad entre cuentas personales).
+  MoveMethod.transfer: (from, item, to, progress) =>
+      DriveActions.transferToAccount(from, item, to, progress: progress),
 };
 
 const moveMethodNames = {

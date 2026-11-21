@@ -107,6 +107,86 @@ class DriveActions {
     await _changed(a.email);
   }
 
+  static final Map<String, String> _permIds = {};
+
+  /// Id de permiso de la cuenta (para quitarle el acceso a un archivo).
+  static Future<String> permissionId(Account a) async {
+    final cached = _permIds[a.email];
+    if (cached != null) return cached;
+    final j = await _call(a, 'GET', '/drive/v3/about', query: {'fields': 'user(permissionId)'});
+    final id = (j['user'] as Map<String, dynamic>)['permissionId'] as String;
+    _permIds[a.email] = id;
+    return id;
+  }
+
+  /// Pasa la propiedad de un elemento entre cuentas personales:
+  /// el dueño actual lo ofrece (pendingOwner) y la cuenta destino lo acepta.
+  static Future<void> _transferOne(Account from, DriveItem it, Account to, {required bool toRoot}) async {
+    await _call(from, 'POST', '/drive/v3/files/${it.id}/permissions',
+        query: {'fields': 'id'},
+        body: {'role': 'writer', 'type': 'user', 'emailAddress': to.email, 'pendingOwner': true});
+    await _call(to, 'POST', '/drive/v3/files/${it.id}/permissions', query: {
+      'transferOwnership': 'true',
+      if (toRoot) 'moveToNewOwnersRoot': 'true',
+      'fields': 'id',
+    }, body: {
+      'role': 'owner',
+      'type': 'user',
+      'emailAddress': to.email,
+    });
+  }
+
+  /// Mueve sin duplicar: pasa la propiedad del elemento (y de todo lo que contiene, si es
+  /// carpeta) a la otra cuenta y le quita el acceso a la cuenta de origen.
+  /// El espacio pasa a ocupar en la cuenta destino; links y compartidos se conservan.
+  static Future<CopyReport> transferToAccount(Account from, DriveItem it, Account to,
+      {void Function(CopyReport)? progress}) async {
+    final idx = indexes.loaded[from.email];
+    final list = <DriveItem>[it];
+    if (it.isFolder) {
+      if (idx == null) throw Exception('Primero indexá ${from.title}.');
+      for (final id in idx.descendants(it.id)) {
+        final x = idx.items[id];
+        if (x != null && x.mine && !x.trashed) list.add(x);
+      }
+    }
+    final report = CopyReport()..total = list.length;
+    progress?.call(report);
+    final ok = <DriveItem>[];
+    for (final x in list) {
+      try {
+        await _transferOne(from, x, to, toRoot: x.id == it.id);
+        ok.add(x);
+      } catch (e) {
+        if (x.id == it.id) rethrow; // si falla el principal, no seguir
+        report.failed.add(x.name);
+      }
+      report.done++;
+      progress?.call(report);
+    }
+    // quitarle el acceso a la cuenta de origen (lo hace el nuevo dueño)
+    try {
+      final pid = await permissionId(from);
+      for (final x in ok.reversed) {
+        try {
+          await _call(to, 'DELETE', '/drive/v3/files/${x.id}/permissions/$pid');
+        } catch (_) {}
+      }
+    } catch (_) {}
+    // actualizar índices
+    final dest = indexes.loaded[to.email];
+    for (final x in ok) {
+      idx?.items.remove(x.id);
+      if (dest != null) {
+        dest.items[x.id] = DriveItem(x.id, x.name, x.mime, x.size, x.quota,
+            x.id == it.id ? dest.rootId : x.parent, x.modified, x.md5, false, true);
+      }
+    }
+    await _changed(from.email);
+    await _changed(to.email);
+    return report;
+  }
+
   /// Crea una planilla de Google Sheets (en Mi unidad) a partir de un CSV. Devuelve su link.
   static Future<String> createSheet(Account a, String name, String csv) async {
     const boundary = 'mgd-boundary-7d1f';
@@ -554,6 +634,40 @@ List<Widget> actionButtons(
           close();
           final to = await pickAccount(context, a, 'Mover a…');
           if (to == null || !context.mounted) return;
+          final method = await showDialog<String>(
+            context: context,
+            builder: (ctx) => SimpleDialog(
+              title: Text('Mover a ${to.title}'),
+              children: [
+                SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, 'transfer'),
+                  child: const ListTile(
+                    leading: Icon(Icons.swap_horiz),
+                    title: Text('Pasar la propiedad (recomendado)'),
+                    subtitle: Text('Rápido, sin volver a subir; conserva links y compartidos.'),
+                  ),
+                ),
+                SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, 'copy'),
+                  child: const ListTile(
+                    leading: Icon(Icons.copy),
+                    title: Text('Copiar y mandar el original a la papelera'),
+                    subtitle: Text('Crea archivos nuevos (links nuevos).'),
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (method == null || !context.mounted) return;
+          if (method == 'transfer') {
+            runWithReport(
+              context,
+              'Pasando "${it.name}" a ${to.title}',
+              (p) => DriveActions.transferToAccount(a, it, to, progress: p),
+              (r) => 'Movido sin duplicar a ${to.title} (${r.total} elementos)',
+            );
+            return;
+          }
           if (!await confirm(
               context,
               'Mover a otra cuenta',

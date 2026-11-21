@@ -2,7 +2,7 @@
 /// Los IDs de cliente no son secretos y quedan acá; el secreto de escritorio es un Secret del repo.
 class Config {
   static const webClientId = String.fromEnvironment('WEB_CLIENT_ID',
-      defaultValue: '414410842048-9039a81gkn8lgq83j851ka6qq5kqqvaa.apps.googleusercontent.com');
+      defaultValue: '414410842048-ac53pi41embhn1k8e004dnr99m20fqao.apps.googleusercontent.com');
   static const desktopClientId = String.fromEnvironment('DESKTOP_CLIENT_ID',
       defaultValue: '414410842048-2j5f3pa1gb4ajf4v5g6965pjekt2qk5a.apps.googleusercontent.com');
   static const desktopClientSecret = String.fromEnvironment('DESKTOP_CLIENT_SECRET');

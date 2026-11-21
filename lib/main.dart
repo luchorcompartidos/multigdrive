@@ -5,6 +5,7 @@ import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'accounts.dart';
+import 'analyzer.dart';
 import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
@@ -387,6 +388,18 @@ class _HomePageState extends State<HomePage> {
         title: const Text('Multi G-DRIVE'),
         actions: [
           TextButton(onPressed: _showVersion, child: Text('v${Config.appVersion}')),
+          IconButton(
+            tooltip: 'Analizador',
+            onPressed: accounts.isEmpty
+                ? null
+                : () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                          builder: (_) =>
+                              AnalyzerPage(accounts: store.accounts, indexes: _indexes)),
+                    ),
+            icon: const Icon(Icons.insights),
+          ),
           IconButton(
             tooltip: 'Buscar en todas las cuentas',
             onPressed: accounts.isEmpty ? null : _openSearch,

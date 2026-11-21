@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'accounts.dart';
 import 'actions.dart';
+import 'cleanup.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
 import 'platform/platform.dart' as platform;
@@ -258,6 +259,18 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
     return ListView(children: [
       _summary('${groups.length} grupos de archivos idénticos. '
           'Dejando una sola copia de cada uno liberarías ${formatBytes(total)}.'),
+      if (groups.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: FilledButton.icon(
+            icon: const Icon(Icons.cleaning_services_outlined),
+            label: const Text('Limpiar duplicados'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(builder: (_) => DuplicatesCleanupPage(groups: groups)),
+            ),
+          ),
+        ),
       for (final g in groups.take(_top))
         ExpansionTile(
           leading: Icon(iconFor(g.files.first.item)),

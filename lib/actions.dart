@@ -43,7 +43,29 @@ class DriveActions {
     throw Exception('Drive respondió ${res.statusCode}: $msg');
   }
 
+  /// En operaciones en lote se junta la actualización del índice para el final.
+  static bool deferChanges = false;
+  static final Set<String> _pending = {};
+
+  static Future<void> flushChanges() async {
+    deferChanges = false;
+    final emails = List.of(_pending);
+    _pending.clear();
+    for (final e in emails) {
+      final idx = indexes.loaded[e];
+      if (idx != null) {
+        idx.rebuild();
+        await indexes.save(e);
+      }
+    }
+    indexChanged.value++;
+  }
+
   static Future<void> _changed(String email) async {
+    if (deferChanges) {
+      _pending.add(email);
+      return;
+    }
     final idx = indexes.loaded[email];
     if (idx != null) {
       idx.rebuild();
@@ -354,11 +376,17 @@ Future<Account?> pickAccount(BuildContext context, Account except, String title)
 
 /// Elegir carpeta de destino dentro de la misma cuenta.
 Future<String?> pickFolder(BuildContext context, AccountIndex idx, DriveItem moving) =>
+    pickFolderFor(context, idx, [moving]);
+
+Future<String?> pickFolderFor(BuildContext context, AccountIndex idx, List<DriveItem> moving) =>
     showDialog<String>(
       context: context,
       builder: (ctx) {
         var current = idx.rootId;
-        final blocked = {moving.id, ...idx.descendants(moving.id)};
+        final blocked = {
+          for (final m in moving) ...[m.id, ...idx.descendants(m.id)]
+        };
+        final sameParent = moving.map((m) => m.parent).toSet();
         return StatefulBuilder(builder: (ctx, setLocal) {
           final folders = (idx.children[current] ?? const <DriveItem>[])
               .where((f) => f.isFolder && !blocked.contains(f.id))
@@ -398,7 +426,9 @@ Future<String?> pickFolder(BuildContext context, AccountIndex idx, DriveItem mov
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
               FilledButton(
-                onPressed: current == moving.parent ? null : () => Navigator.pop(ctx, current),
+                onPressed: (sameParent.length == 1 && sameParent.first == current)
+                    ? null
+                    : () => Navigator.pop(ctx, current),
                 child: const Text('Mover acá'),
               ),
             ],
@@ -511,4 +541,60 @@ List<Widget> actionButtons(
       ),
     ],
   ];
+}
+
+
+/// Aplica una acción a muchos elementos, con barra de progreso.
+Future<void> runBatch(BuildContext context, String title, List<(Account, DriveItem)> items,
+    Future<void> Function(Account, DriveItem) op, {String done = 'Listo'}) async {
+  final tick = ValueNotifier<int>(0);
+  var count = 0;
+  final failed = <String>[];
+  final nav = Navigator.of(context);
+  final messenger = ScaffoldMessenger.of(context);
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: ValueListenableBuilder<int>(
+        valueListenable: tick,
+        builder: (_, __, ___) => Column(mainAxisSize: MainAxisSize.min, children: [
+          LinearProgressIndicator(value: items.isEmpty ? null : count / items.length),
+          const SizedBox(height: 12),
+          Text('$count de ${items.length}'
+              '${failed.isEmpty ? '' : ' · ${failed.length} con error'}'),
+        ]),
+      ),
+    ),
+  );
+  DriveActions.deferChanges = true;
+  NeedsMorePermission? perm;
+  try {
+    for (final (a, it) in items) {
+      try {
+        await op(a, it);
+      } on NeedsMorePermission catch (e) {
+        perm = e;
+        failed.add(it.name);
+        break;
+      } catch (_) {
+        failed.add(it.name);
+      }
+      count++;
+      tick.value++;
+    }
+  } finally {
+    await DriveActions.flushChanges();
+    nav.pop();
+  }
+  messenger.showSnackBar(SnackBar(
+    duration: const Duration(seconds: 8),
+    content: Text(perm != null
+        ? '$perm'
+        : failed.isEmpty
+            ? '$done (${items.length})'
+            : '${items.length - failed.length} de ${items.length} OK. Con error: '
+                '${failed.take(5).join(', ')}${failed.length > 5 ? '…' : ''}'),
+  ));
 }

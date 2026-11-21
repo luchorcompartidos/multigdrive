@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'accounts.dart';
+import 'evolution.dart';
 
 /// Revisión diaria con la app cerrada (Android): cuotas de todas las cuentas y aviso.
 class Background {
@@ -64,6 +65,7 @@ class Background {
       await store.refreshQuota(a);
       if (store.overAlert(a)) over.add(a);
     }
+    await Usage.record(store.accounts);
     if (over.isEmpty) return true;
     final prefs = await SharedPreferences.getInstance();
     final last = prefs.getInt(_lastKey) ?? 0;

@@ -16,6 +16,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'evolution.dart';
 import 'rules.dart';
 import 'gmail.dart';
 import 'offline.dart';
@@ -148,6 +149,7 @@ class _HomePageState extends State<HomePage> {
         for (final a in List.of(store.accounts)) {
           await store.refreshQuota(a);
         }
+        await Usage.record(store.accounts);
         _quotaAlert();
       });
 
@@ -552,6 +554,9 @@ class _HomePageState extends State<HomePage> {
               } else if (v == 'reglas') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const RulesPage()));
+              } else if (v == 'evolucion') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const EvolutionPage()));
               } else if (v == 'historial') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
@@ -561,6 +566,9 @@ class _HomePageState extends State<HomePage> {
               PopupMenuItem(
                   value: 'historial',
                   child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
+              PopupMenuItem(
+                  value: 'evolucion',
+                  child: ListTile(leading: Icon(Icons.show_chart), title: Text('Evolución del uso'))),
               PopupMenuItem(
                   value: 'reglas',
                   child: ListTile(

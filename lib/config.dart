@@ -10,7 +10,8 @@ class Config {
   static const webRedirect = 'https://luchorcompartidos.github.io/multigdrive/';
   static const androidScheme = 'com.luchorcompartidos.multigdrive';
   static const appVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
-  static const repoUrl = 'https://github.com/luchorcompartidos/multigdrive';
+  static const repoSlug = 'luchorcompartidos/multigdrive';
+  static const repoUrl = 'https://github.com/$repoSlug';
 
   /// Solo lectura de metadatos (cuota, árbol, tamaños, checksums).
   static const scope = 'https://www.googleapis.com/auth/drive.metadata.readonly';

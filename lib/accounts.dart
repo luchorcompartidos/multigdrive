@@ -257,6 +257,14 @@ class AccountStore {
     await save();
   }
 
+  /// Token vigente de la cuenta (lo renueva si hace falta).
+  Future<String> tokenFor(Account a) async {
+    final before = a.accessToken;
+    await _ensureToken(a);
+    if (a.accessToken != before) await save();
+    return a.accessToken;
+  }
+
   Future<void> _ensureToken(Account a) async {
     if (a.accessToken.isNotEmpty &&
         a.expiry.isAfter(DateTime.now().add(const Duration(minutes: 1)))) {

@@ -16,6 +16,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'unified.dart';
 import 'mirror.dart';
 import 'evolution.dart';
 import 'rules.dart';
@@ -511,6 +512,14 @@ class _HomePageState extends State<HomePage> {
         title: const Text('Multi G-DRIVE'),
         actions: [
           TextButton(onPressed: _showVersion, child: Text('v${Config.appVersion}')),
+          IconButton(
+            tooltip: 'Mi Drive total (todas las cuentas como una)',
+            onPressed: accounts.isEmpty
+                ? null
+                : () => Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const UnifiedPage())),
+            icon: const Icon(Icons.storage),
+          ),
           IconButton(
             tooltip: 'Balanceador de espacio',
             onPressed: accounts.length < 2

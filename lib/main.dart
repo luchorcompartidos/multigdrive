@@ -16,6 +16,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'rules.dart';
 import 'gmail.dart';
 import 'offline.dart';
 import 'side_tree.dart';
@@ -548,6 +549,9 @@ class _HomePageState extends State<HomePage> {
               } else if (v == 'gmail') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const GmailPage()));
+              } else if (v == 'reglas') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const RulesPage()));
               } else if (v == 'historial') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
@@ -557,6 +561,10 @@ class _HomePageState extends State<HomePage> {
               PopupMenuItem(
                   value: 'historial',
                   child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
+              PopupMenuItem(
+                  value: 'reglas',
+                  child: ListTile(
+                      leading: Icon(Icons.rule), title: Text('Reglas automáticas'))),
               PopupMenuItem(
                   value: 'gmail',
                   child: ListTile(

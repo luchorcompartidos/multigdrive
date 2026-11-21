@@ -5,6 +5,7 @@ import 'actions.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
 import 'platform/platform.dart' as platform;
+import 'side_tree.dart';
 
 /// Un archivo con su cuenta e índice, para listas que cruzan cuentas.
 class FileRef {
@@ -326,6 +327,7 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
       appBar: AppBar(
         title: const Text('Analizador'),
         actions: [
+          sidebarButton(context),
           IconButton(
             tooltip: 'Exportar esta pestaña a CSV',
             onPressed: indexed.isEmpty ? null : _export,
@@ -339,7 +341,8 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
           tabs: [for (final t in _tabs) Tab(text: t)],
         ),
       ),
-      body: indexed.isEmpty
+      drawer: sidebarDrawer(context),
+      body: withSidebar(context, indexed.isEmpty
           ? const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
@@ -371,7 +374,7 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
                   _trashView(),
                 ]),
               ),
-            ]),
+            ])),
     );
   }
 }

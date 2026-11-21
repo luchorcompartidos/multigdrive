@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'accounts.dart';
 import 'actions.dart';
 import 'drive_index.dart';
+import 'side_tree.dart';
 
 enum SortBy { size, name, date }
 
@@ -156,6 +157,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
         appBar: AppBar(
           title: Text(widget.account.title, overflow: TextOverflow.ellipsis),
           actions: [
+            sidebarButton(context),
             PopupMenuButton<SortBy>(
               tooltip: 'Ordenar',
               icon: const Icon(Icons.sort),
@@ -169,7 +171,8 @@ class _ExplorerPageState extends State<ExplorerPage> {
             ),
           ],
         ),
-        body: Column(children: [
+        drawer: sidebarDrawer(context),
+        body: withSidebar(context, Column(children: [
           SizedBox(
             height: 48,
             child: ListView(
@@ -269,7 +272,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                     },
                   ),
           ),
-        ]),
+        ])),
       ),
     );
   }
@@ -347,8 +350,10 @@ class _SearchPageState extends State<SearchPage> {
               hintText: 'Buscar en todas las cuentas', border: InputBorder.none),
           onChanged: _search,
         ),
+        actions: [sidebarButton(context)],
       ),
-      body: Column(children: [
+      drawer: sidebarDrawer(context),
+      body: withSidebar(context, Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: Align(
@@ -390,7 +395,7 @@ class _SearchPageState extends State<SearchPage> {
             },
           ),
         ),
-      ]),
+      ])),
     );
   }
 }

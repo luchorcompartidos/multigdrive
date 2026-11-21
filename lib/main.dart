@@ -11,6 +11,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'side_tree.dart';
 import 'platform/platform.dart' as platform;
 import 'updates.dart';
 
@@ -123,6 +124,7 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       _snack('Error: $e');
     } finally {
+      indexChanged.value++; // refresca la barra lateral
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -457,7 +459,8 @@ class _HomePageState extends State<HomePage> {
         icon: const Icon(Icons.person_add_alt_1),
         label: const Text('Agregar cuenta'),
       ),
-      body: ReorderableListView.builder(
+      drawer: sidebarDrawer(context),
+      body: withSidebar(context, ReorderableListView.builder(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         header: header,
         buildDefaultDragHandles: false,
@@ -481,7 +484,7 @@ class _HomePageState extends State<HomePage> {
             onIndex: () => _index(a),
           );
         },
-      ),
+      )),
     );
   }
 }

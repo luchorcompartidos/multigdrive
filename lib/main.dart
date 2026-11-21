@@ -16,6 +16,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'rclone.dart';
 import 'disks.dart';
 import 'unified.dart';
 import 'upload.dart';
@@ -577,13 +578,20 @@ class _HomePageState extends State<HomePage> {
               } else if (v == 'discos') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const DisksPage()));
+              } else if (v == 'unidad') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const RclonePage()));
               } else if (v == 'historial') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
+            itemBuilder: (_) => [
+              if (rcloneSupported)
+                const PopupMenuItem(
+                    value: 'unidad',
+                    child: ListTile(leading: Icon(Icons.save_outlined), title: Text('Unidad de Windows (G:)'))),
+              const PopupMenuItem(
                   value: 'historial',
                   child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
               PopupMenuItem(

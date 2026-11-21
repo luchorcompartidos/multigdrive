@@ -85,9 +85,6 @@ jobs:
   web:
     needs: version
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -104,12 +101,13 @@ jobs:
             --dart-define=APP_VERSION=${{ needs.version.outputs.version }}
           sed -i 's#<title>[^<]*</title>#<title>Multi G-DRIVE</title>#' build/web/index.html
           cp build/web/index.html build/web/404.html
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v4
+      - name: Publicar en la rama gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: build/web
-      - id: deploy
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: build/web
+          force_orphan: true
+          commit_message: "Web v${{ needs.version.outputs.version }}"
 
   android:
     needs: version

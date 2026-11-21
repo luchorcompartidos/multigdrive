@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'accounts.dart';
 import 'drive_index.dart';
+import 'history.dart';
 
 /// Avisa a las pantallas abiertas que cambió algún índice.
 final indexChanged = ValueNotifier<int>(0);
@@ -78,6 +79,7 @@ class DriveActions {
   static Future<void> setTrashed(Account a, DriveItem it, bool trashed) async {
     await _call(a, 'PATCH', '/drive/v3/files/${it.id}',
         query: {'fields': 'id'}, body: {'trashed': trashed});
+    await History.add(trashed ? 'trash' : 'restore', a, it);
     final idx = indexes.loaded[a.email];
     if (idx != null) {
       for (final id in [it.id, ...idx.descendants(it.id)]) {
@@ -90,7 +92,14 @@ class DriveActions {
 
   /// Vacía la papelera de la cuenta (borrado definitivo).
   static Future<void> emptyTrash(Account a) async {
+    final idxT = indexes.loaded[a.email];
+    final freed = idxT == null
+        ? 0
+        : idxT.items.values
+            .where((x) => x.trashed && !x.isFolder && !x.isVirtual)
+            .fold<int>(0, (s, x) => s + x.quota);
     await _call(a, 'DELETE', '/drive/v3/files/trash');
+    await History.add('empty', a, DriveItem.virtual(trashId, 'Papelera'), bytes: freed);
     indexes.loaded[a.email]?.items.removeWhere((_, x) => x.trashed && !x.isVirtual);
     await _changed(a.email);
   }
@@ -102,6 +111,7 @@ class DriveActions {
       if (it.parent != null) 'removeParents': it.parent!,
       'fields': 'id,parents',
     }, body: {});
+    await History.add('move', a, it, undo: {'parent': it.parent ?? 'root'});
     final idx = indexes.loaded[a.email];
     if (idx != null) idx.items[it.id] = it.copyWith(parent: newParent);
     await _changed(a.email);
@@ -182,6 +192,7 @@ class DriveActions {
             x.id == it.id ? dest.rootId : x.parent, x.modified, x.md5, false, true);
       }
     }
+    if (ok.any((x) => x.id == it.id)) await History.add('transfer', from, it, to: to);
     await _changed(from.email);
     await _changed(to.email);
     return report;
@@ -222,6 +233,7 @@ class DriveActions {
     try {
       final copy = await _call(to, 'POST', '/drive/v3/files/${it.id}/copy',
           query: {'fields': fileFields}, body: {'name': it.name, 'parents': ['root']});
+      await History.add('copy', from, it, to: to, undo: {'newId': copy['id']});
       final dest = indexes.loaded[to.email];
       if (dest != null) {
         final c = DriveItem.fromApi(copy);
@@ -249,6 +261,12 @@ class FolderOps {
   static Future<void> rename(Account a, DriveItem it, String name) async {
     await DriveActions._call(a, 'PATCH', '/drive/v3/files/${it.id}',
         query: {'fields': 'id'}, body: {'name': name});
+    await History.add(
+        'rename',
+        a,
+        DriveItem(it.id, name, it.mime, it.size, it.quota, it.parent, it.modified, it.md5,
+            it.trashed, it.mine),
+        undo: {'name': it.name});
     final idx = DriveActions.indexes.loaded[a.email];
     if (idx != null) {
       idx.items[it.id] = DriveItem(it.id, name, it.mime, it.size, it.quota, it.parent,
@@ -262,6 +280,7 @@ class FolderOps {
     final j = await DriveActions._call(a, 'POST', '/drive/v3/files',
         query: {'fields': fileFields},
         body: {'name': name, 'mimeType': folderMime, 'parents': [parentId]});
+    await History.add('create', a, DriveItem.fromApi(j));
     final idx = DriveActions.indexes.loaded[a.email];
     if (idx != null) {
       final it = DriveItem.fromApi(j);
@@ -347,6 +366,10 @@ class FolderOps {
         } catch (_) {}
       }
       await DriveActions._changed(to.email);
+    }
+    final topCopy = newId[folder.id];
+    if (topCopy != null) {
+      await History.add('copy', from, folder, to: to, undo: {'newId': topCopy});
     }
     if (move && report.failed.isEmpty) await DriveActions.setTrashed(from, folder, true);
     return report;

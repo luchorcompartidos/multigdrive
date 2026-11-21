@@ -9,6 +9,7 @@ import 'accounts.dart';
 import 'actions.dart';
 import 'analyzer.dart';
 import 'background.dart';
+import 'history.dart';
 import 'balancer.dart';
 import 'auth/auth.dart' as auth;
 import 'config.dart';
@@ -534,8 +535,25 @@ class _HomePageState extends State<HomePage> {
             onPressed: _busy || accounts.isEmpty ? null : _refreshAll,
             icon: const Icon(Icons.refresh),
           ),
-          IconButton(
-              tooltip: 'Ajustes', onPressed: _showSettings, icon: const Icon(Icons.settings)),
+          PopupMenuButton<String>(
+            tooltip: 'Más',
+            onSelected: (v) {
+              if (v == 'ajustes') {
+                _showSettings();
+              } else if (v == 'historial') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                  value: 'historial',
+                  child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
+              PopupMenuItem(
+                  value: 'ajustes',
+                  child: ListTile(leading: Icon(Icons.settings), title: Text('Ajustes'))),
+            ],
+          ),
         ],
         bottom: _busy
             ? const PreferredSize(

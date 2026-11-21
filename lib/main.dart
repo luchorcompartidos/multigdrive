@@ -16,6 +16,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'disks.dart';
 import 'unified.dart';
 import 'upload.dart';
 import 'mirror.dart';
@@ -40,6 +41,7 @@ Future<void> main() async {
   final store = AccountStore();
   await store.load();
   await Offline.load();
+  await Disks.load();
   Background.setup();
   runApp(MultiGDriveApp(store: store, pending: pending));
 }
@@ -572,6 +574,9 @@ class _HomePageState extends State<HomePage> {
               } else if (v == 'espejo') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const MirrorPage()));
+              } else if (v == 'discos') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const DisksPage()));
               } else if (v == 'historial') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
@@ -581,6 +586,9 @@ class _HomePageState extends State<HomePage> {
               PopupMenuItem(
                   value: 'historial',
                   child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
+              PopupMenuItem(
+                  value: 'discos',
+                  child: ListTile(leading: Icon(Icons.album_outlined), title: Text('Discos virtuales'))),
               PopupMenuItem(
                   value: 'espejo',
                   child: ListTile(leading: Icon(Icons.copy_all), title: Text('Espejo / respaldo'))),

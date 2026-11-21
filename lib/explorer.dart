@@ -5,6 +5,7 @@ import 'accounts.dart';
 import 'actions.dart';
 import 'drive_index.dart';
 import 'offline.dart';
+import 'disks.dart';
 import 'side_tree.dart';
 
 enum SortBy { size, name, date }
@@ -75,6 +76,7 @@ void showItemDetails(BuildContext context, Account account, AccountIndex idx, Dr
               ),
             ...offlineButtons(context, account, idx, it, () => Navigator.pop(ctx)),
             ...actionButtons(context, account, idx, it, () => Navigator.pop(ctx)),
+            ...diskButtons(context, account, idx, it, () => Navigator.pop(ctx)),
           ]),
         ]),
       ),

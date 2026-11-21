@@ -111,6 +111,196 @@ class DriveActions {
   }
 }
 
+/// Resultado de copiar una carpeta.
+class CopyReport {
+  int done = 0;
+  int total = 0;
+  final List<String> failed = [];
+}
+
+class FolderOps {
+  /// Renombra un archivo o carpeta.
+  static Future<void> rename(Account a, DriveItem it, String name) async {
+    await DriveActions._call(a, 'PATCH', '/drive/v3/files/${it.id}',
+        query: {'fields': 'id'}, body: {'name': name});
+    final idx = DriveActions.indexes.loaded[a.email];
+    if (idx != null) {
+      idx.items[it.id] = DriveItem(it.id, name, it.mime, it.size, it.quota, it.parent,
+          it.modified, it.md5, it.trashed, it.mine);
+    }
+    await DriveActions._changed(a.email);
+  }
+
+  /// Crea una carpeta nueva dentro de [parentId].
+  static Future<void> createFolder(Account a, String parentId, String name) async {
+    final j = await DriveActions._call(a, 'POST', '/drive/v3/files',
+        query: {'fields': fileFields},
+        body: {'name': name, 'mimeType': folderMime, 'parents': [parentId]});
+    final idx = DriveActions.indexes.loaded[a.email];
+    if (idx != null) {
+      final it = DriveItem.fromApi(j);
+      idx.items[it.id] = it;
+    }
+    await DriveActions._changed(a.email);
+  }
+
+  /// Copia una carpeta completa (estructura y archivos) a [to], dentro de [destParent]
+  /// ('root' = Mi unidad). Si [move], al terminar sin errores el original va a la papelera.
+  static Future<CopyReport> copyFolder(Account from, DriveItem folder, Account to,
+      {String destParent = 'root', bool move = false, void Function(CopyReport)? progress}) async {
+    final idx = DriveActions.indexes.loaded[from.email];
+    if (idx == null) throw Exception('Primero indexá ${from.title}.');
+    final report = CopyReport();
+    final inside = idx
+        .descendants(folder.id)
+        .map((id) => idx.items[id]!)
+        .where((x) => !x.trashed)
+        .toList();
+    final folders = [folder, ...inside.where((x) => x.isFolder)];
+    final files = inside.where((x) => !x.isFolder).toList();
+    report.total = folders.length + files.length;
+    progress?.call(report);
+
+    final same = from.email == to.email;
+    Map<String, dynamic>? perm;
+    if (!same) {
+      perm = await DriveActions._call(from, 'POST', '/drive/v3/files/${folder.id}/permissions',
+          query: {'sendNotificationEmail': 'false', 'fields': 'id'},
+          body: {'role': 'reader', 'type': 'user', 'emailAddress': to.email});
+    }
+    final dest = DriveActions.indexes.loaded[to.email];
+    final newId = <String, String>{};
+    try {
+      // 1) carpetas, de arriba hacia abajo (folders ya está en ese orden)
+      for (final f in folders) {
+        final parent = f.id == folder.id ? destParent : newId[f.parent];
+        if (parent == null) {
+          report.failed.add(f.name);
+          continue;
+        }
+        try {
+          final j = await DriveActions._call(to, 'POST', '/drive/v3/files',
+              query: {'fields': fileFields},
+              body: {'name': f.name, 'mimeType': folderMime, 'parents': [parent]});
+          newId[f.id] = j['id'] as String;
+          if (dest != null) {
+            final c = DriveItem.fromApi(j);
+            dest.items[c.id] = parent == 'root' ? c.copyWith(parent: dest.rootId) : c;
+          }
+        } catch (_) {
+          report.failed.add(f.name);
+        }
+        report.done++;
+        progress?.call(report);
+      }
+      // 2) archivos
+      for (final f in files) {
+        final parent = newId[f.parent];
+        if (parent == null) {
+          report.failed.add(f.name);
+        } else {
+          try {
+            final j = await DriveActions._call(to, 'POST', '/drive/v3/files/${f.id}/copy',
+                query: {'fields': fileFields}, body: {'name': f.name, 'parents': [parent]});
+            if (dest != null) {
+              final c = DriveItem.fromApi(j);
+              dest.items[c.id] = c;
+            }
+          } catch (_) {
+            report.failed.add(f.name);
+          }
+        }
+        report.done++;
+        progress?.call(report);
+      }
+    } finally {
+      if (perm != null) {
+        try {
+          await DriveActions._call(
+              from, 'DELETE', '/drive/v3/files/${folder.id}/permissions/${perm['id']}');
+        } catch (_) {}
+      }
+      await DriveActions._changed(to.email);
+    }
+    if (move && report.failed.isEmpty) await DriveActions.setTrashed(from, folder, true);
+    return report;
+  }
+}
+
+/// Diálogo con barra de progreso para la copia de carpetas.
+Future<void> runFolderCopy(BuildContext context, String title, Account from, DriveItem folder,
+    Account to, {bool move = false}) async {
+  final tick = ValueNotifier<int>(0);
+  CopyReport? current;
+  final nav = Navigator.of(context);
+  final messenger = ScaffoldMessenger.of(context);
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: ValueListenableBuilder<int>(
+        valueListenable: tick,
+        builder: (_, __, ___) {
+          final r = current;
+          return Column(mainAxisSize: MainAxisSize.min, children: [
+          LinearProgressIndicator(
+              value: (r == null || r.total == 0) ? null : r.done / r.total),
+          const SizedBox(height: 12),
+          Text(r == null
+              ? 'Preparando…'
+              : '${r.done} de ${r.total} elementos'
+                  '${r.failed.isEmpty ? '' : ' · ${r.failed.length} con error'}'),
+          const SizedBox(height: 8),
+          const Text('No cierres la app hasta que termine.'),
+        ]);
+        },
+      ),
+    ),
+  );
+  try {
+    final r = await FolderOps.copyFolder(from, folder, to,
+        move: move, progress: (r) {
+      current = r;
+      tick.value++;
+    });
+    nav.pop();
+    messenger.showSnackBar(SnackBar(
+      duration: const Duration(seconds: 8),
+      content: Text(r.failed.isEmpty
+          ? '${move ? 'Movida' : 'Copiada'}: "${folder.name}" → ${to.title} (${r.total} elementos)'
+          : '${r.total - r.failed.length} de ${r.total} copiados. Con error: '
+              '${r.failed.take(5).join(', ')}${r.failed.length > 5 ? '…' : ''}'
+              '${move ? '. El original NO se movió a la papelera.' : ''}'),
+    ));
+  } catch (e) {
+    nav.pop();
+    messenger.showSnackBar(
+        SnackBar(content: Text('$e'), duration: const Duration(seconds: 8)));
+  }
+}
+
+Future<String?> askText(BuildContext context, String title, String label, String initial) {
+  final ctrl = TextEditingController(text: initial);
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        decoration: InputDecoration(labelText: label),
+        onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+        FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Aceptar')),
+      ],
+    ),
+  );
+}
+
 // ---------- diálogos ----------
 
 Future<bool> confirm(BuildContext context, String title, String text, String ok) async =>
@@ -250,6 +440,25 @@ List<Widget> actionButtons(
       },
     ),
     OutlinedButton.icon(
+      icon: const Icon(Icons.edit_outlined),
+      label: const Text('Renombrar'),
+      onPressed: () async {
+        close();
+        final name = await askText(context, 'Renombrar', 'Nombre', it.name);
+        if (name == null || name.isEmpty || name == it.name || !context.mounted) return;
+        runAction(context, 'Renombrado: $name', () => FolderOps.rename(a, it, name));
+      },
+    ),
+    if (it.isFolder)
+      OutlinedButton.icon(
+        icon: const Icon(Icons.folder_copy_outlined),
+        label: const Text('Duplicar carpeta'),
+        onPressed: () {
+          close();
+          runFolderCopy(context, 'Duplicando "${it.name}"', a, it, a);
+        },
+      ),
+    OutlinedButton.icon(
       icon: const Icon(Icons.drive_file_move_outline),
       label: const Text('Mover a otra carpeta'),
       onPressed: () async {
@@ -259,7 +468,7 @@ List<Widget> actionButtons(
         runAction(context, 'Movido: ${it.name}', () => DriveActions.move(a, it, dest));
       },
     ),
-    if (others && !it.isFolder) ...[
+    if (others) ...[
       OutlinedButton.icon(
         icon: const Icon(Icons.copy),
         label: const Text('Copiar a otra cuenta'),
@@ -267,6 +476,10 @@ List<Widget> actionButtons(
           close();
           final to = await pickAccount(context, a, 'Copiar a…');
           if (to == null || !context.mounted) return;
+          if (it.isFolder) {
+            runFolderCopy(context, 'Copiando "${it.name}" a ${to.title}', a, it, to);
+            return;
+          }
           runAction(context, 'Copiado a ${to.title} (Mi unidad)',
               () => DriveActions.copyToAccount(a, it, to));
         },
@@ -281,11 +494,17 @@ List<Widget> actionButtons(
           if (!await confirm(
               context,
               'Mover a otra cuenta',
-              'Se copia "${it.name}" a ${to.title} y el original va a la papelera de ${a.title}.',
+              'Se copia ${it.isFolder ? 'la carpeta completa' : 'el archivo'} "${it.name}" a '
+                  '${to.title} (Mi unidad) y, si todo sale bien, el original va a la papelera '
+                  'de ${a.title}.',
               'Mover')) {
             return;
           }
           if (!context.mounted) return;
+          if (it.isFolder) {
+            runFolderCopy(context, 'Moviendo "${it.name}" a ${to.title}', a, it, to, move: true);
+            return;
+          }
           runAction(context, 'Movido a ${to.title} (Mi unidad)',
               () => DriveActions.copyToAccount(a, it, to, move: true));
         },

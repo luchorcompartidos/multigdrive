@@ -214,6 +214,17 @@ class _ExplorerPageState extends State<ExplorerPage> {
                     icon: const Icon(Icons.delete_forever, size: 18),
                     label: const Text('Vaciar papelera'),
                   ),
+                if (!here.isVirtual && !here.trashed)
+                  IconButton(
+                    tooltip: 'Nueva carpeta',
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    onPressed: () async {
+                      final name = await askText(context, 'Nueva carpeta', 'Nombre', '');
+                      if (name == null || name.isEmpty || !context.mounted) return;
+                      runAction(context, 'Carpeta creada: $name',
+                          () => FolderOps.createFolder(widget.account, here.id, name));
+                    },
+                  ),
                 if (!here.isVirtual)
                   TextButton.icon(
                     onPressed: () => openInDrive(here),

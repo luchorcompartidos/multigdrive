@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'accounts.dart';
 import 'actions.dart';
 import 'analyzer.dart';
+import 'balancer.dart';
 import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
@@ -489,6 +490,14 @@ class _HomePageState extends State<HomePage> {
         title: const Text('Multi G-DRIVE'),
         actions: [
           TextButton(onPressed: _showVersion, child: Text('v${Config.appVersion}')),
+          IconButton(
+            tooltip: 'Balanceador de espacio',
+            onPressed: accounts.length < 2
+                ? null
+                : () => Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const BalancerPage())),
+            icon: const Icon(Icons.balance),
+          ),
           IconButton(
             tooltip: 'Analizador',
             onPressed: accounts.isEmpty

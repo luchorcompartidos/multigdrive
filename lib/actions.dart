@@ -273,9 +273,10 @@ class FolderOps {
   }
 }
 
-/// Diálogo con barra de progreso para la copia de carpetas.
-Future<void> runFolderCopy(BuildContext context, String title, Account from, DriveItem folder,
-    Account to, {bool move = false}) async {
+/// Diálogo con barra de progreso para operaciones largas que informan un CopyReport.
+Future<CopyReport?> runWithReport(BuildContext context, String title,
+    Future<CopyReport> Function(void Function(CopyReport) progress) task,
+    String Function(CopyReport) doneText) async {
   final tick = ValueNotifier<int>(0);
   CopyReport? current;
   final nav = Navigator.of(context);
@@ -290,23 +291,21 @@ Future<void> runFolderCopy(BuildContext context, String title, Account from, Dri
         builder: (_, __, ___) {
           final r = current;
           return Column(mainAxisSize: MainAxisSize.min, children: [
-          LinearProgressIndicator(
-              value: (r == null || r.total == 0) ? null : r.done / r.total),
-          const SizedBox(height: 12),
-          Text(r == null
-              ? 'Preparando…'
-              : '${r.done} de ${r.total} elementos'
-                  '${r.failed.isEmpty ? '' : ' · ${r.failed.length} con error'}'),
-          const SizedBox(height: 8),
-          const Text('No cierres la app hasta que termine.'),
-        ]);
+            LinearProgressIndicator(value: (r == null || r.total == 0) ? null : r.done / r.total),
+            const SizedBox(height: 12),
+            Text(r == null
+                ? 'Preparando…'
+                : '${r.done} de ${r.total} elementos'
+                    '${r.failed.isEmpty ? '' : ' · ${r.failed.length} con error'}'),
+            const SizedBox(height: 8),
+            const Text('No cierres la app hasta que termine.'),
+          ]);
         },
       ),
     ),
   );
   try {
-    final r = await FolderOps.copyFolder(from, folder, to,
-        move: move, progress: (r) {
+    final r = await task((r) {
       current = r;
       tick.value++;
     });
@@ -314,17 +313,27 @@ Future<void> runFolderCopy(BuildContext context, String title, Account from, Dri
     messenger.showSnackBar(SnackBar(
       duration: const Duration(seconds: 8),
       content: Text(r.failed.isEmpty
-          ? '${move ? 'Movida' : 'Copiada'}: "${folder.name}" → ${to.title} (${r.total} elementos)'
-          : '${r.total - r.failed.length} de ${r.total} copiados. Con error: '
-              '${r.failed.take(5).join(', ')}${r.failed.length > 5 ? '…' : ''}'
-              '${move ? '. El original NO se movió a la papelera.' : ''}'),
+          ? doneText(r)
+          : '${r.total - r.failed.length} de ${r.total} OK. Con error: '
+              '${r.failed.take(5).join(', ')}${r.failed.length > 5 ? '…' : ''}'),
     ));
+    return r;
   } catch (e) {
     nav.pop();
-    messenger.showSnackBar(
-        SnackBar(content: Text('$e'), duration: const Duration(seconds: 8)));
+    messenger.showSnackBar(SnackBar(content: Text('$e'), duration: const Duration(seconds: 8)));
+    return null;
   }
 }
+
+/// Copia (o mueve copiando) una carpeta completa, con progreso.
+Future<void> runFolderCopy(BuildContext context, String title, Account from, DriveItem folder,
+        Account to, {bool move = false}) =>
+    runWithReport(
+      context,
+      title,
+      (p) => FolderOps.copyFolder(from, folder, to, move: move, progress: p),
+      (r) => '${move ? 'Movida' : 'Copiada'}: "${folder.name}" → ${to.title} (${r.total} elementos)',
+    );
 
 Future<String?> askText(BuildContext context, String title, String label, String initial) {
   final ctrl = TextEditingController(text: initial);

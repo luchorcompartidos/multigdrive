@@ -18,6 +18,7 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  actions: read
 
 concurrency:
   group: ci-main
@@ -104,7 +105,7 @@ jobs:
           sed -i 's#<title>[^<]*</title>#<title>Multi G-DRIVE</title>#' build/web/index.html
           cp build/web/index.html build/web/404.html
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: build/web
       - id: deploy

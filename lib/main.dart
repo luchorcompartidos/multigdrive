@@ -5,6 +5,7 @@ import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'accounts.dart';
+import 'actions.dart';
 import 'analyzer.dart';
 import 'auth/auth.dart' as auth;
 import 'config.dart';
@@ -71,9 +72,16 @@ class _HomePageState extends State<HomePage> {
     return Updates.compare(latest.version, Config.appVersion) > 0 ? latest : null;
   }
 
+  void _onIndexChange() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    DriveActions.store = store;
+    DriveActions.indexes = _indexes;
+    indexChanged.addListener(_onIndexChange);
     // Android: la cuenta vuelve desde el navegador.
     _sub = auth.authResults.listen(
       (r) => _run(() async {
@@ -99,6 +107,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    indexChanged.removeListener(_onIndexChange);
     _sub?.cancel();
     super.dispose();
   }

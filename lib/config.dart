@@ -13,6 +13,6 @@ class Config {
   static const repoSlug = 'luchorcompartidos/multigdrive';
   static const repoUrl = 'https://github.com/$repoSlug';
 
-  /// Solo lectura de metadatos (cuota, árbol, tamaños, checksums).
-  static const scope = 'https://www.googleapis.com/auth/drive.metadata.readonly';
+  /// Drive completo: leer metadatos y hacer cambios (papelera, mover, copiar).
+  static const scope = 'https://www.googleapis.com/auth/drive';
 }

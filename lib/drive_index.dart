@@ -8,6 +8,8 @@ const folderMime = 'application/vnd.google-apps.folder';
 const topId = '__top';
 const otherId = '__otros';
 const trashId = '__papelera';
+const fileFields =
+    'id,name,mimeType,size,quotaBytesUsed,parents,modifiedTime,md5Checksum,trashed,ownedByMe';
 
 /// Un archivo o carpeta de Drive (solo metadatos).
 class DriveItem {
@@ -69,6 +71,9 @@ class DriveItem {
     );
   }
 
+  DriveItem copyWith({String? parent, bool? trashed}) => DriveItem(id, name, mime, size, quota,
+      parent ?? this.parent, modified, md5, trashed ?? this.trashed, mine);
+
   static DriveItem virtual(String id, String name) =>
       DriveItem(id, name, folderMime, 0, 0, null, 0, null, false, true);
 }
@@ -89,6 +94,26 @@ class AccountIndex {
   int get fileCount => items.values.where((i) => !i.isFolder).length;
 
   DriveItem get root => items[rootId]!;
+
+  /// Recalcula árbol y tamaños después de un cambio.
+  void rebuild() {
+    children.clear();
+    parentOf.clear();
+    _build();
+  }
+
+  /// Todo lo que hay adentro de una carpeta (a cualquier nivel).
+  List<String> descendants(String id) {
+    final out = <String>[];
+    final pending = [id];
+    while (pending.isNotEmpty) {
+      for (final c in children[pending.removeLast()] ?? const <DriveItem>[]) {
+        out.add(c.id);
+        if (c.isFolder) pending.add(c.id);
+      }
+    }
+    return out;
+  }
 
   void _build() {
     items[rootId] ??= DriveItem.virtual(rootId, 'Mi unidad');
@@ -190,6 +215,11 @@ class IndexStore {
     }
   }
 
+  Future<void> save(String email) async {
+    final idx = loaded[email];
+    if (idx != null) await storage.saveIndex(email, idx.toJson());
+  }
+
   Future<void> remove(String email) async {
     loaded.remove(email);
     await storage.deleteIndex(email);
@@ -215,8 +245,7 @@ class IndexStore {
             'pageSize': '1000',
             'spaces': 'drive',
             'corpora': 'user',
-            'fields': 'nextPageToken,files(id,name,mimeType,size,quotaBytesUsed,parents,'
-                'modifiedTime,md5Checksum,trashed,ownedByMe)',
+            'fields': 'nextPageToken,files($fileFields)',
             if (page != null) 'pageToken': page,
           }),
           token,

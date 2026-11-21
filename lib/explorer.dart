@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'accounts.dart';
+import 'actions.dart';
 import 'drive_index.dart';
 
 enum SortBy { size, name, date }
@@ -37,7 +38,8 @@ void openInDrive(DriveItem it) {
       mode: LaunchMode.externalApplication);
 }
 
-void showItemDetails(BuildContext context, AccountIndex idx, DriveItem it, String accountTitle) {
+void showItemDetails(BuildContext context, Account account, AccountIndex idx, DriveItem it) {
+  final accountTitle = account.title;
   final path = idx.pathTo(idx.parentOf[it.id] ?? topId).map((p) => p.name).join(' / ');
   showModalBottomSheet<void>(
     context: context,
@@ -62,12 +64,15 @@ void showItemDetails(BuildContext context, AccountIndex idx, DriveItem it, Strin
           if (it.modified > 0) Text('Modificado: ${fmtDay(it.modifiedAt)}'),
           if (it.trashed) const Text('Está en la papelera'),
           const SizedBox(height: 12),
-          if (!it.isVirtual)
-            FilledButton.icon(
-              onPressed: () => openInDrive(it),
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Abrir en Drive'),
-            ),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            if (!it.isVirtual)
+              FilledButton.icon(
+                onPressed: () => openInDrive(it),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Abrir en Drive'),
+              ),
+            ...actionButtons(context, account, idx, it, () => Navigator.pop(ctx)),
+          ]),
         ]),
       ),
     ),
@@ -91,6 +96,25 @@ class _ExplorerPageState extends State<ExplorerPage> {
   SortBy _sort = SortBy.size;
 
   AccountIndex get idx => widget.index;
+
+  void _onChange() {
+    if (!mounted) return;
+    setState(() {
+      if (!idx.items.containsKey(_current)) _current = topId;
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    indexChanged.addListener(_onChange);
+  }
+
+  @override
+  void dispose() {
+    indexChanged.removeListener(_onChange);
+    super.dispose();
+  }
 
   List<DriveItem> _entries() {
     final list = _current == topId
@@ -172,6 +196,24 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 Expanded(
                     child: Text('${formatBytes(here.total)} · ${here.files} archivos',
                         style: t.titleSmall)),
+                if (here.id == trashId && here.files > 0)
+                  TextButton.icon(
+                    onPressed: () async {
+                      if (await confirm(
+                          context,
+                          'Vaciar papelera',
+                          'Se borran DEFINITIVAMENTE ${here.files} archivos '
+                              '(${formatBytes(here.total)}) de ${widget.account.title}. '
+                              'No se puede deshacer.',
+                          'Vaciar')) {
+                        if (!context.mounted) return;
+                        runAction(context, 'Papelera vaciada',
+                            () => DriveActions.emptyTrash(widget.account));
+                      }
+                    },
+                    icon: const Icon(Icons.delete_forever, size: 18),
+                    label: const Text('Vaciar papelera'),
+                  ),
                 if (!here.isVirtual)
                   TextButton.icon(
                     onPressed: () => openInDrive(here),
@@ -209,9 +251,9 @@ class _ExplorerPageState extends State<ExplorerPage> {
                         trailing: Text(formatBytes(it.shownSize)),
                         onTap: it.isFolder
                             ? () => setState(() => _current = it.id)
-                            : () => showItemDetails(context, idx, it, widget.account.title),
+                            : () => showItemDetails(context, widget.account, idx, it),
                         onLongPress: () =>
-                            showItemDetails(context, idx, it, widget.account.title),
+                            showItemDetails(context, widget.account, idx, it),
                       );
                     },
                   ),
@@ -244,6 +286,22 @@ class _SearchPageState extends State<SearchPage> {
   List<_Hit> _hits = [];
   int _found = 0;
   String _q = '';
+
+  void _onChange() {
+    if (mounted) _search(_q);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    indexChanged.addListener(_onChange);
+  }
+
+  @override
+  void dispose() {
+    indexChanged.removeListener(_onChange);
+    super.dispose();
+  }
 
   void _search(String q) {
     _q = q.trim();
@@ -316,7 +374,7 @@ class _SearchPageState extends State<SearchPage> {
                         startId: it.isFolder ? it.id : parentId),
                   ),
                 ),
-                onLongPress: () => showItemDetails(context, h.index, it, h.account.title),
+                onLongPress: () => showItemDetails(context, h.account, h.index, it),
               );
             },
           ),

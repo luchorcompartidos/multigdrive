@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'accounts.dart';
+import 'actions.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
 import 'platform/platform.dart' as platform;
@@ -84,6 +85,23 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
   late final TabController _tab = TabController(length: _tabs.length, vsync: this);
   String? _only; // email filtrado, o todas
   int _years = 3;
+
+  void _onChange() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    indexChanged.addListener(_onChange);
+  }
+
+  @override
+  void dispose() {
+    indexChanged.removeListener(_onChange);
+    _tab.dispose();
+    super.dispose();
+  }
 
   List<Account> get _accounts => widget.accounts
       .where((a) => widget.indexes.loaded.containsKey(a.email))
@@ -215,7 +233,7 @@ class _AnalyzerPageState extends State<AnalyzerPage> with SingleTickerProviderSt
           overflow: TextOverflow.ellipsis,
         ),
         trailing: Text(formatBytes(f.item.quota)),
-        onTap: () => showItemDetails(context, f.index, f.item, f.account.title),
+        onTap: () => showItemDetails(context, f.account, f.index, f.item),
         onLongPress: () => _openFolderOf(f),
       );
 

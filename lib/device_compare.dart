@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -31,7 +33,8 @@ class LocalMatch {
   final int size;
   final MatchLevel level;
   final List<FileRef> drive;
-  LocalMatch(this.path, this.size, this.level, this.drive);
+  final String key; // mismo contenido = misma clave (huella, o nombre+tamaño si no hay huella)
+  LocalMatch(this.path, this.size, this.level, this.drive, this.key);
 
   String get name => path.split(Platform.pathSeparator).last;
   String get folder {
@@ -203,14 +206,17 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
             final same = withMd5.where((c) => c.item.md5 == hash).toList();
             if (same.isNotEmpty) {
               final exact = same.any((c) => c.item.name.toLowerCase() == name.toLowerCase());
-              out.add(LocalMatch(path, st.size, exact ? MatchLevel.exact : MatchLevel.identical, same));
+              out.add(LocalMatch(
+                  path, st.size, exact ? MatchLevel.exact : MatchLevel.identical, same, hash));
               continue;
             }
           }
           final similar = cands
               .where((c) => c.item.md5 == null && _base(c.item.name) == _base(name))
               .toList();
-          if (similar.isNotEmpty) out.add(LocalMatch(path, st.size, MatchLevel.similar, similar));
+          if (similar.isNotEmpty) {
+            out.add(LocalMatch(path, st.size, MatchLevel.similar, similar, 'sim:${_base(name)}:${st.size}'));
+          }
         }
       } catch (_) {}
     }
@@ -224,6 +230,52 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
       });
     }
   }
+
+  /// Todas las copias en el equipo de un mismo contenido.
+  List<LocalMatch> _copiesOnDevice(LocalMatch m) =>
+      (_matches ?? const <LocalMatch>[]).where((x) => x.key == m.key).toList();
+
+  String _drivePath(FileRef f) {
+    final p = f.path;
+    return p.isEmpty ? f.item.name : '$p / ${f.item.name}';
+  }
+
+  String _driveFolderLink(FileRef f) {
+    final parent = f.item.parent;
+    final idx = f.index;
+    if (parent == null || parent == idx.rootId) return 'https://drive.google.com/drive/my-drive';
+    return 'https://drive.google.com/drive/folders/$parent';
+  }
+
+  Future<void> _copy(String text, String what) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$what copiado')));
+    }
+  }
+
+  String _summary(LocalMatch m) {
+    final dev = _copiesOnDevice(m);
+    final b = StringBuffer()
+      ..writeln('Archivo: ${m.name}')
+      ..writeln('Coincidencia: ${levelNames[m.level]} · ${formatBytes(m.size)}')
+      ..writeln('En el equipo (${dev.length}):');
+    for (final d in dev) {
+      b.writeln('  ${d.path}');
+    }
+    b.writeln('En Drive (${m.drive.length}):');
+    for (final f in m.drive) {
+      b.writeln('  ${f.account.email}: ${_drivePath(f)}');
+      b.writeln('    ${_driveFolderLink(f)}');
+    }
+    return b.toString();
+  }
+
+  Widget _copyBtn(String tooltip, String text, String what) => IconButton(
+        tooltip: tooltip,
+        icon: const Icon(Icons.copy, size: 18),
+        onPressed: () => _copy(text, what),
+      );
 
   List<LocalMatch> get _visible =>
       (_matches ?? const <LocalMatch>[]).where((m) => _filter == null || m.level == _filter).toList();
@@ -282,49 +334,98 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
   }
 
   void _details(LocalMatch m) {
+    final dev = _copiesOnDevice(m);
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       builder: (ctx) => SafeArea(
-        child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
-          Text(m.name, style: Theme.of(ctx).textTheme.titleMedium),
-          Text('${levelNames[m.level]} · ${formatBytes(m.size)}'),
-          Text('En este equipo: ${m.folder}'),
-          const SizedBox(height: 8),
-          const Text('En Drive:'),
-          for (final f in m.drive)
-            ListTile(
-              dense: true,
-              leading: Icon(iconFor(f.item), color: Color(f.account.color)),
-              title: Text(f.item.name),
-              subtitle: Text('${f.account.title} · ${f.path}'),
-              onTap: () => openInDrive(f.item),
-            ),
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            OutlinedButton.icon(
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Abrir el del equipo'),
-              onPressed: () => OpenFilex.open(m.path),
-            ),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.phone_android),
-              label: const Text('Dejar solo en Drive'),
-              onPressed: () {
-                Navigator.pop(ctx);
-                _deleteLocal([m]);
-              },
-            ),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.cloud_off),
-              label: const Text('Dejar solo en el equipo'),
-              onPressed: () {
-                Navigator.pop(ctx);
-                _trashDrive([m]);
-              },
-            ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.85),
+          child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 8, 16), children: [
+            Row(children: [
+              Expanded(child: Text(m.name, style: Theme.of(ctx).textTheme.titleMedium)),
+              _copyBtn('Copiar nombre', m.name, 'Nombre'),
+            ]),
+            Text('${levelNames[m.level]} · ${formatBytes(m.size)}'),
+            const SizedBox(height: 12),
+            Text('En el equipo: ${dev.length} ${dev.length == 1 ? 'carpeta' : 'carpetas'}',
+                style: Theme.of(ctx).textTheme.titleSmall),
+            for (final d in dev)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.folder_outlined),
+                title: Text(d.folder),
+                subtitle: d.name == m.name ? null : Text('como "${d.name}"'),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  _copyBtn('Copiar carpeta', d.folder, 'Carpeta'),
+                  _copyBtn('Copiar ruta completa', d.path, 'Ruta'),
+                  if (Platform.isWindows)
+                    IconButton(
+                      tooltip: 'Abrir carpeta',
+                      icon: const Icon(Icons.folder_open, size: 18),
+                      onPressed: () => launchUrl(Uri.file(d.folder)),
+                    ),
+                ]),
+              ),
+            const SizedBox(height: 8),
+            Text('En Drive: ${m.drive.length} ${m.drive.length == 1 ? 'ubicación' : 'ubicaciones'}',
+                style: Theme.of(ctx).textTheme.titleSmall),
+            for (final f in m.drive)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(iconFor(f.item), color: Color(f.account.color)),
+                title: Text('${f.account.title} · ${_drivePath(f)}'),
+                subtitle: f.item.name == m.name ? null : Text('como "${f.item.name}"'),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  _copyBtn('Copiar ruta en Drive', '${f.account.email}: ${_drivePath(f)}', 'Ruta de Drive'),
+                  _copyBtn('Copiar link de la carpeta', _driveFolderLink(f), 'Link de la carpeta'),
+                  IconButton(
+                    tooltip: 'Abrir la carpeta en Drive',
+                    icon: const Icon(Icons.folder_open, size: 18),
+                    onPressed: () => launchUrl(Uri.parse(_driveFolderLink(f)),
+                        mode: LaunchMode.externalApplication),
+                  ),
+                  IconButton(
+                    tooltip: 'Abrir el archivo en Drive',
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    onPressed: () => openInDrive(f.item),
+                  ),
+                ]),
+              ),
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              OutlinedButton.icon(
+                icon: const Icon(Icons.content_copy),
+                label: const Text('Copiar todo'),
+                onPressed: () => _copy(_summary(m), 'Resumen'),
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Abrir el del equipo'),
+                onPressed: () => OpenFilex.open(m.path),
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.phone_android),
+                label: const Text('Dejar solo en Drive'),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _deleteLocal([m]);
+                },
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.cloud_off),
+                label: const Text('Dejar solo en el equipo'),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _trashDrive([m]);
+                },
+              ),
+            ]),
           ]),
-        ]),
+        ),
       ),
     );
   }
@@ -439,12 +540,16 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                 subtitle: Text(
                   '${levelNames[m.level]} · ${m.folder.split(Platform.pathSeparator).last} → '
                   '${m.drive.map((f) => f.account.title).toSet().join(', ')}'
-                  '${m.level == MatchLevel.identical ? ' (“${m.drive.first.item.name}”)' : ''}',
-                  maxLines: 2,
+                  '${m.level == MatchLevel.identical ? ' (“${m.drive.first.item.name}”)' : ''}\n'
+                  'Equipo: ${_copiesOnDevice(m).length} ${_copiesOnDevice(m).length == 1 ? 'carpeta' : 'carpetas'}'
+                  ' · Drive: ${m.drive.length} ${m.drive.length == 1 ? 'ubicación' : 'ubicaciones'}',
+                  maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
+                isThreeLine: true,
                 trailing: Text(formatBytes(m.size)),
                 onTap: () => _details(m),
+                onLongPress: () => _copy(m.name, 'Nombre'),
               ),
           ],
           const SizedBox(height: 80),

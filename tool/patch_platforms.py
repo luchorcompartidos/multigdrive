@@ -17,6 +17,59 @@ def patch(path, old, new):
     print(f"OK {path}")
 
 
+MAIN_ACTIVITY = """package com.luchorcompartidos.multigdrive
+
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.os.StrictMode
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+
+class MainActivity : FlutterActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mgd/carpetas")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "abrir") {
+                    result.success(abrirCarpeta(call.argument<String>("path") ?: ""))
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+
+    /** Ofrece abrir la carpeta con los exploradores de archivos instalados. */
+    private fun abrirCarpeta(path: String): Boolean {
+        val rel = path.removePrefix("/storage/emulated/0").trimStart('/')
+        val doc = Uri.parse(
+            "content://com.android.externalstorage.documents/document/" + Uri.encode("primary:$rel")
+        )
+        val porDocumentos = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(doc, "vnd.android.document/directory")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val porRuta = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(Uri.parse("file://$path"), "resource/folder")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Algunos exploradores solo aceptan rutas "file://"
+        StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
+        val chooser = Intent.createChooser(porDocumentos, "Abrir carpeta con…")
+            .putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(porRuta))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            startActivity(chooser)
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        } catch (e: Exception) {
+            false
+        }
+    }
+}
+"""
+
+
 def android():
     m = "android/app/src/main/AndroidManifest.xml"
     s = open(m, encoding="utf-8").read()
@@ -38,6 +91,10 @@ def android():
     s = open(m, encoding="utf-8").read()
     if "requestLegacyExternalStorage" not in s:
         patch(m, "<application", '<application android:requestLegacyExternalStorage="true"')
+    import glob
+    for ma in glob.glob("android/app/src/main/kotlin/**/MainActivity.kt", recursive=True):
+        open(ma, "w", encoding="utf-8").write(MAIN_ACTIVITY)
+        print(f"OK {ma}")
     desugar()
     # Vuelta del inicio de sesión: com.luchorcompartidos.multigdrive://oauth
     patch(m, "</activity>", f"""    <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />

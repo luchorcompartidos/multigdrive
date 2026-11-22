@@ -271,6 +271,23 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
     return b.toString();
   }
 
+  static const _channel = MethodChannel('mgd/carpetas');
+
+  /// Abre la carpeta del equipo: Windows en el Explorador; Android ofrece los exploradores instalados.
+  Future<void> _openFolder(String folder) async {
+    if (Platform.isWindows) {
+      await launchUrl(Uri.file(folder));
+      return;
+    }
+    bool ok = false;
+    try {
+      ok = await _channel.invokeMethod<bool>('abrir', {'path': folder}) ?? false;
+    } catch (_) {}
+    if (!ok) {
+      await _copy(folder, 'No hay un explorador compatible. Ruta');
+    }
+  }
+
   Widget _copyBtn(String tooltip, String text, String what) => IconButton(
         tooltip: tooltip,
         icon: const Icon(Icons.copy, size: 18),
@@ -356,17 +373,19 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.folder_outlined),
-                title: Text(d.folder),
+                title: Text(d.folder,
+                    style: TextStyle(
+                        color: Theme.of(ctx).colorScheme.primary, decoration: TextDecoration.underline)),
+                onTap: () => _openFolder(d.folder),
                 subtitle: d.name == m.name ? null : Text('como "${d.name}"'),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   _copyBtn('Copiar carpeta', d.folder, 'Carpeta'),
                   _copyBtn('Copiar ruta completa', d.path, 'Ruta'),
-                  if (Platform.isWindows)
-                    IconButton(
-                      tooltip: 'Abrir carpeta',
-                      icon: const Icon(Icons.folder_open, size: 18),
-                      onPressed: () => launchUrl(Uri.file(d.folder)),
-                    ),
+                  IconButton(
+                    tooltip: 'Abrir carpeta',
+                    icon: const Icon(Icons.folder_open, size: 18),
+                    onPressed: () => _openFolder(d.folder),
+                  ),
                 ]),
               ),
             const SizedBox(height: 8),

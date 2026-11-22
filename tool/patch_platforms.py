@@ -29,6 +29,15 @@ def android():
     s = open(m, encoding="utf-8").read()
     if "POST_NOTIFICATIONS" not in s:
         patch(m, "<application", '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <application')
+    s = open(m, encoding="utf-8").read()
+    if "MANAGE_EXTERNAL_STORAGE" not in s:
+        patch(m, "<application", '<uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />\n'
+              '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n'
+              '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n'
+              '    <application')
+    s = open(m, encoding="utf-8").read()
+    if "requestLegacyExternalStorage" not in s:
+        patch(m, "<application", '<application android:requestLegacyExternalStorage="true"')
     desugar()
     # Vuelta del inicio de sesión: com.luchorcompartidos.multigdrive://oauth
     patch(m, "</activity>", f"""    <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />

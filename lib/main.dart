@@ -16,6 +16,7 @@ import 'auth/auth.dart' as auth;
 import 'config.dart';
 import 'drive_index.dart';
 import 'explorer.dart';
+import 'device_compare.dart';
 import 'rclone.dart';
 import 'disks.dart';
 import 'unified.dart';
@@ -581,12 +582,20 @@ class _HomePageState extends State<HomePage> {
               } else if (v == 'unidad') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const RclonePage()));
+              } else if (v == 'equipo') {
+                Navigator.push(
+                    context, MaterialPageRoute<void>(builder: (_) => const DeviceComparePage()));
               } else if (v == 'historial') {
                 Navigator.push(
                     context, MaterialPageRoute<void>(builder: (_) => const HistoryPage()));
               }
             },
             itemBuilder: (_) => [
+              if (deviceCompareSupported)
+                const PopupMenuItem(
+                    value: 'equipo',
+                    child: ListTile(
+                        leading: Icon(Icons.compare), title: Text('Este equipo ↔ Drive'))),
               if (rcloneSupported)
                 const PopupMenuItem(
                     value: 'unidad',

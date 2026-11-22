@@ -116,6 +116,8 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
       .where((f) => !f.contains('Music') && !f.contains('Movies') && !f.contains('Videos'))
       .toSet();
   bool _running = false;
+  bool _includeShared = false; // archivos compartidos conmigo (no son míos): solo si se piden
+  final Map<String, String> _owner = {}; // id de archivo → "Dueño: … · Lo compartió: …"
   String _status = '';
   List<LocalMatch>? _matches;
   MatchLevel? _filter;
@@ -229,14 +231,68 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
         _status = '$seen archivos revisados · $hashed huellas nuevas';
       });
     }
+    _fetchOwners();
   }
+
+  /// Dueño y quién compartió cada archivo de Drive que no es tuyo (para saber a quién pedírselo).
+  Future<void> _fetchOwners() async {
+    final pending = <String, FileRef>{};
+    for (final m in _matches ?? const <LocalMatch>[]) {
+      for (final f in m.drive) {
+        if (!f.item.mine && !_owner.containsKey(f.item.id)) pending[f.item.id] = f;
+      }
+    }
+    var n = 0;
+    for (final f in pending.values) {
+      if (n++ >= 300) break;
+      try {
+        final j = await DriveActions.api(f.account, 'GET', '/drive/v3/files/${f.item.id}',
+            query: {'fields': 'owners(displayName,emailAddress),sharingUser(displayName,emailAddress)'});
+        String who(Map? u) =>
+            u == null ? '' : '${u['displayName'] ?? ''} <${u['emailAddress'] ?? '?'}>'.trim();
+        final owners = (j['owners'] as List? ?? []).map((o) => who(o as Map)).join(', ');
+        final sharer = who(j['sharingUser'] as Map?);
+        _owner[f.item.id] = [
+          if (owners.isNotEmpty) 'Dueño: $owners',
+          if (sharer.isNotEmpty && sharer != owners) 'Lo compartió: $sharer',
+        ].join(' · ');
+      } catch (_) {
+        _owner[f.item.id] = 'Dueño: no disponible (puede que ya no tengas acceso)';
+      }
+      if (mounted && n % 10 == 0) setState(() {});
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Copias en Drive a mostrar: sin repetir el mismo archivo (si lo ven varias de tus cuentas)
+  /// y, salvo que se pida, sin los compartidos conmigo.
+  List<FileRef> _shown(LocalMatch m) {
+    final byId = <String, FileRef>{};
+    for (final f in m.drive) {
+      if (!_includeShared && !f.item.mine) continue;
+      final prev = byId[f.item.id];
+      if (prev == null || (!prev.item.mine && f.item.mine)) byId[f.item.id] = f;
+    }
+    final list = byId.values.toList()
+      ..sort((a, b) => (a.item.mine ? 0 : 1) - (b.item.mine ? 0 : 1));
+    return list;
+  }
+
+  /// Cuentas tuyas desde las que se ve ese mismo archivo.
+  List<Account> _seenFrom(LocalMatch m, String id) =>
+      m.drive.where((f) => f.item.id == id).map((f) => f.account).toSet().toList();
+
+  bool _onlyShared(LocalMatch m) => !m.drive.any((f) => f.item.mine);
 
   /// Todas las copias en el equipo de un mismo contenido.
   List<LocalMatch> _copiesOnDevice(LocalMatch m) =>
       (_matches ?? const <LocalMatch>[]).where((x) => x.key == m.key).toList();
 
   String _drivePath(FileRef f) {
-    final p = f.path;
+    var p = f.path;
+    if (f.index.parentOf[f.item.id] == otherId) {
+      p = f.item.mine ? 'Sin carpeta (tuyo)' : 'Compartido conmigo';
+    }
     return p.isEmpty ? f.item.name : '$p / ${f.item.name}';
   }
 
@@ -264,8 +320,9 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
       b.writeln('  ${d.path}');
     }
     b.writeln('En Drive (${m.drive.length}):');
-    for (final f in m.drive) {
+    for (final f in _shown(m)) {
       b.writeln('  ${f.account.email}: ${_drivePath(f)}');
+      if (!f.item.mine) b.writeln('    No es tuyo · ${_owner[f.item.id] ?? ''}');
       b.writeln('    ${_driveFolderLink(f)}');
     }
     return b.toString();
@@ -294,10 +351,33 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
         onPressed: () => _copy(text, what),
       );
 
+  List<LocalMatch> get _all => (_matches ?? const <LocalMatch>[])
+      .where((m) => _includeShared || !_onlyShared(m))
+      .toList();
+
   List<LocalMatch> get _visible =>
-      (_matches ?? const <LocalMatch>[]).where((m) => _filter == null || m.level == _filter).toList();
+      _all.where((m) => _filter == null || m.level == _filter).toList();
 
   Future<void> _deleteLocal(List<LocalMatch> list) async {
+    final risky = list.where(_onlyShared).toList();
+    if (risky.isNotEmpty) {
+      final keep = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.warning_amber),
+          title: const Text('Cuidado: no son tuyos en Drive'),
+          content: Text('${risky.length} de estos archivos están en Drive solo como "compartidos conmigo". '
+              'Si el dueño los borra o te quita el acceso, los perdés. Se recomienda NO borrarlos del equipo.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Conservarlos (recomendado)')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Borrarlos igual')),
+          ],
+        ),
+      );
+      if (keep == null) return;
+      if (keep) list = list.where((m) => !_onlyShared(m)).toList();
+      if (list.isEmpty || !mounted) return;
+    }
     final bytes = list.fold<int>(0, (s, m) => s + m.size);
     if (!await confirm(
         context,
@@ -389,15 +469,30 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                 ]),
               ),
             const SizedBox(height: 8),
-            Text('En Drive: ${m.drive.length} ${m.drive.length == 1 ? 'ubicación' : 'ubicaciones'}',
+            Text('En Drive: ${_shown(m).length} ${_shown(m).length == 1 ? 'ubicación' : 'ubicaciones'}',
                 style: Theme.of(ctx).textTheme.titleSmall),
-            for (final f in m.drive)
+            if (_onlyShared(m))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text('⚠ Solo está en Drive como compartido conmigo: no ocupa tu espacio y no lo '
+                    'controlás. Si el dueño lo borra o te quita el acceso, lo perdés.',
+                    style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+              ),
+            for (final f in _shown(m))
               ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(iconFor(f.item), color: Color(f.account.color)),
                 title: Text('${f.account.title} · ${_drivePath(f)}'),
-                subtitle: f.item.name == m.name ? null : Text('como "${f.item.name}"'),
+                subtitle: Text([
+                  if (f.item.name != m.name) 'como "${f.item.name}"',
+                  if (f.item.mine) 'Tuyo · ocupa espacio en ${f.account.title}',
+                  if (!f.item.mine) 'No es tuyo · no ocupa tu espacio',
+                  if (!f.item.mine) _owner[f.item.id] ?? 'Buscando dueño…',
+                  if (_seenFrom(m, f.item.id).length > 1)
+                    'Lo ven ${_seenFrom(m, f.item.id).length} de tus cuentas: '
+                        '${_seenFrom(m, f.item.id).map((a) => a.title).join(', ')}',
+                ].join('\n')),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   _copyBtn('Copiar ruta en Drive', '${f.account.email}: ${_drivePath(f)}', 'Ruta de Drive'),
                   _copyBtn('Copiar link de la carpeta', _driveFolderLink(f), 'Link de la carpeta'),
@@ -452,7 +547,8 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    final all = _matches;
+    final all = _matches == null ? null : _all;
+    final hiddenShared = (_matches ?? const <LocalMatch>[]).where(_onlyShared).length;
     final list = _visible;
     int bytesOf(Iterable<LocalMatch> l) => l.fold<int>(0, (s, m) => s + m.size);
     final device = Platform.isAndroid ? 'celular' : 'PC';
@@ -520,6 +616,17 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
               child: Text(_status, style: t.bodySmall),
             ),
           if (all != null) ...[
+            SwitchListTile(
+              dense: true,
+              title: const Text('Incluir archivos "compartidos conmigo"'),
+              subtitle: Text('No son tuyos ni ocupan tu espacio; el dueño puede quitarte el acceso.'
+                  '${hiddenShared > 0 && !_includeShared ? ' Hay $hiddenShared ocultos.' : ''}'),
+              value: _includeShared,
+              onChanged: (v) => setState(() {
+                _includeShared = v;
+                _sel.clear();
+              }),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
               child: Text('${all.length} archivos del $device (${formatBytes(bytesOf(all))}) también están en Drive',
@@ -558,10 +665,11 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                 title: Text(m.name, overflow: TextOverflow.ellipsis),
                 subtitle: Text(
                   '${levelNames[m.level]} · ${m.folder.split(Platform.pathSeparator).last} → '
-                  '${m.drive.map((f) => f.account.title).toSet().join(', ')}'
-                  '${m.level == MatchLevel.identical ? ' (“${m.drive.first.item.name}”)' : ''}\n'
+                  '${_shown(m).map((f) => f.account.title).toSet().join(', ')}'
+                  '${m.level == MatchLevel.identical ? ' (“${_shown(m).first.item.name}”)' : ''}'
+                  '${_onlyShared(m) ? ' · ⚠ compartido conmigo' : ''}\n'
                   'Equipo: ${_copiesOnDevice(m).length} ${_copiesOnDevice(m).length == 1 ? 'carpeta' : 'carpetas'}'
-                  ' · Drive: ${m.drive.length} ${m.drive.length == 1 ? 'ubicación' : 'ubicaciones'}',
+                  ' · Drive: ${_shown(m).length} ${_shown(m).length == 1 ? 'ubicación' : 'ubicaciones'}',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),

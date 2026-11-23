@@ -419,6 +419,10 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
           .invokeMethod<List<dynamic>>('exploradores', {'path': folder, 'file': file});
       apps = [for (final e in r ?? const []) Map<String, dynamic>.from(e as Map)];
     } catch (_) {}
+    apps.removeWhere((a) {
+      final n = normalize('${a['nombre'] ?? a['label'] ?? ''}');
+      return _noOfrecer.any(n.contains);
+    });
     if (!mounted) return;
     if (apps.isEmpty) {
       await _copy(folder, 'No encontré un explorador de archivos compatible. Ruta');
@@ -483,16 +487,39 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
       '(Abrir Archivo en carpeta, con...)',
       'Abre Cuadro de Diálogo "Abrir con..." (Reproducir) y la Carpeta en 2do Plano'
     ),
+    'mixplorer': (
+      '(Abrir Archivo en carpeta, con...)',
+      'Abre Cuadro de Diálogo "Abrir con..." (Reproducir) y la Carpeta en 2do Plano'
+    ),
+    'xapk installer': (
+      '(Abrir Archivo en la app)',
+      'Abre el archivo dentro de XAPK Installer: solo sirve para instalar APK/XAPK; '
+          'con otros archivos (audio, fotos, etc.) muestra un error'
+    ),
   };
+
+  /// Apps que no sirven para abrir carpetas: no se ofrecen (por nombre, en minúsculas y sin acentos).
+  static const _noOfrecer = ['creador de atajos', 'shortcut maker'];
+
+  /// Texto de la opción de prueba: por paquete o, si no, por nombre de la app.
+  static (String, String)? _pruebaDe(Map<String, dynamic> a) {
+    final byPkg = _pruebas[a['pkg']];
+    if (byPkg != null) return byPkg;
+    final n = normalize('${a['nombre'] ?? ''}');
+    for (final e in _pruebas.entries) {
+      if (!e.key.contains('.') && n.contains(e.key)) return e.value;
+    }
+    return null;
+  }
 
   Future<(Map<String, dynamic>, bool)?> _pickExplorer(List<Map<String, dynamic>> apps, String folder) {
     var remember = false;
     for (final a in apps) {
-      final p = _pruebas[a['pkg']];
+      final p = _pruebaDe(a);
       if (a['nivel'] == 3 && p != null) a['label'] = '${a['nombre']} ${p.$1}';
     }
     String hint(Map<String, dynamic> a) => switch (a['nivel']) {
-          3 when _pruebas.containsKey(a['pkg']) => _pruebas[a['pkg']]!.$2,
+          3 when _pruebaDe(a) != null => _pruebaDe(a)!.$2,
           0 => 'Abre carpetas',
           1 => 'Explorador: se le pasa la carpeta',
           3 => 'Prueba: intenta abrir la carpeta con el archivo marcado (puede abrir el archivo)',

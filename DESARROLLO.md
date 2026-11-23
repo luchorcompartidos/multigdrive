@@ -1,7 +1,7 @@
 # DESARROLLO — Multi G-DRIVE Admin Explorer&Analyzer
 
 Documento para retomar el trabajo en un chat nuevo: **"leé DESARROLLO.md del repo luchorcompartidos/multigdrive"**.
-Última actualización: 23/11/2026 · versión publicada: **v0.3.7**.
+Última actualización: 23/11/2026 · versión publicada: **v0.3.8**.
 
 ## 1. Qué es
 App para administrar desde un solo lugar el almacenamiento de **varias cuentas de Google Drive**:
@@ -101,7 +101,7 @@ Permisos en "Acceso a los datos": `drive` (y `drive.metadata.readonly` del inici
 | E25 | v0.2.2 | Discos virtuales |
 | E26 | v0.2.3 | Unidad de Windows (rclone) |
 | E27 | v0.3.0–v0.3.3 | Equipo ↔ Drive: niveles Exacto/Idéntico/Parecido, copiar rutas y links, abrir carpetas, compartidos conmigo opcionales con dueño |
-| E27 (mejora) | v0.3.4–v0.3.7 | Equipo ↔ Drive: buscador, filtros (tipo, cuenta, carpeta, tamaño, copias) y orden; abrir la carpeta eligiendo el explorador (con "Recordar"); sin Files de Google; archivo a la vista (Windows seleccionado, Android nombre copiado + prueba "marcar archivo") |
+| E27 (mejora) | v0.3.4–v0.3.8 | Equipo ↔ Drive: buscador, filtros (tipo, cuenta, carpeta, tamaño, copias) y orden; abrir la carpeta eligiendo el explorador (con "Recordar"); sin Files de Google; archivo a la vista (Windows seleccionado, Android nombre copiado + prueba "marcar archivo") |
 
 Plan visual: Whiteboard "Multi G-DRIVE Admin Explorer&Analyzer — MVP y Entregables".
 Guía de Google Cloud: doc "Guía Google Cloud — Multi G-DRIVE Admin (E0)".
@@ -129,12 +129,15 @@ Guía de Google Cloud: doc "Guía Google Cloud — Multi G-DRIVE Admin (E0)".
   Amaze "(Abrir Archivo con...)" abre "Abrir con…"; Gestor de Archivos + "(Reproducir Audio en Carpeta)" abre la carpeta y
   reproduce el audio; X-plore "(Abrir Archivo en carpeta, con...)" abre "Abrir con…" con la carpeta detrás.
   MiXplorer no mostraba la prueba (solo se ofrecía a ciertos paquetes): desde v0.3.7 se ofrece a todo explorador salvo los del sistema y Solid.
-  "Archivos del sistema (Android)" abre la carpeta: confirmado. Elección recordada: clave `mgd_explorador_carpetas`.
+  "Archivos del sistema (Android)" abre la carpeta: confirmado.
+  v0.3.8: MiXplorer "(Abrir Archivo en carpeta, con...)" (igual que X-plore); XAPK Installer "(Abrir Archivo en la app)": solo
+  instala APK/XAPK, con audio u otros archivos da error (no hay acción mejor posible en esa app, se dejó con descripción clara);
+  "Creador de atajos" no se ofrece (`_noOfrecer`, por nombre). Los textos por app se buscan por paquete o, si no, por nombre. Elección recordada: clave `mgd_explorador_carpetas`.
 - Sin probar aún con cuentas reales: la mayoría de las funciones desde E5 (solo se verificó la compilación).
 
 ## 8. Pendientes / ideas
 - Pruebas reales y correcciones (mandar capturas).
-- Probar la opción de prueba de MiXplorer (v0.3.7) y `explorer /select` en Windows (v0.3.6).
+- Probar `explorer /select` en Windows (v0.3.6).
 - Notificaciones con la app cerrada en Windows (tarea programada).
 - Copiar carpetas en "Mover a un disco" para Workspace (hoy usa pasar la propiedad).
 - Reproductor: repo `luchorcompartidos/reproductor`, sobre el núcleo (`NUCLEO.md`).

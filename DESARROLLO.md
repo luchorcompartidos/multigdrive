@@ -1,7 +1,7 @@
 # DESARROLLO — Multi G-DRIVE Admin Explorer&Analyzer
 
 Documento para retomar el trabajo en un chat nuevo: **"leé DESARROLLO.md del repo luchorcompartidos/multigdrive"**.
-Última actualización: 23/11/2026 · versión publicada: **v0.3.4**.
+Última actualización: 23/11/2026 · versión publicada: **v0.3.5**.
 
 ## 1. Qué es
 App para administrar desde un solo lugar el almacenamiento de **varias cuentas de Google Drive**:
@@ -101,7 +101,7 @@ Permisos en "Acceso a los datos": `drive` (y `drive.metadata.readonly` del inici
 | E25 | v0.2.2 | Discos virtuales |
 | E26 | v0.2.3 | Unidad de Windows (rclone) |
 | E27 | v0.3.0–v0.3.3 | Equipo ↔ Drive: niveles Exacto/Idéntico/Parecido, copiar rutas y links, abrir carpetas, compartidos conmigo opcionales con dueño |
-| E27 (mejora) | v0.3.4 | Equipo ↔ Drive: buscador, filtros (tipo, cuenta, carpeta, tamaño, copias) y orden; abrir la carpeta eligiendo el explorador (con "Recordar") |
+| E27 (mejora) | v0.3.4–v0.3.5 | Equipo ↔ Drive: buscador, filtros (tipo, cuenta, carpeta, tamaño, copias) y orden; abrir la carpeta eligiendo el explorador (con "Recordar"); sin Files de Google |
 
 Plan visual: Whiteboard "Multi G-DRIVE Admin Explorer&Analyzer — MVP y Entregables".
 Guía de Google Cloud: doc "Guía Google Cloud — Multi G-DRIVE Admin (E0)".
@@ -115,14 +115,16 @@ Guía de Google Cloud: doc "Guía Google Cloud — Multi G-DRIVE Admin (E0)".
 - La marca "sin conexión" de la app oficial de Drive no es legible: la app tiene su propia sección Sin conexión.
 - Android no tiene una forma estándar de abrir una carpeta en un explorador. La app arma su propio selector "Abrir la carpeta con…":
   primero las apps que declaran abrir carpetas (`resource/folder`, `inode/directory`, `vnd.android.document/directory`, `file://`),
-  luego exploradores conocidos (Solid Explorer, MiXplorer, Files de Google…) a los que se les pasa la carpeta, y como "alternativa"
+  luego exploradores conocidos (Solid Explorer, MiXplorer…) a los que se les pasa la carpeta, y como "alternativa"
   su visor genérico. Se descartan las apps que aceptan cualquier archivo (`*/*`), que eran las que abrían el archivo en vez de la carpeta.
+  Probado (v0.3.4): Solid Explorer y MiXplorer abren la carpeta. Files de Google no acepta abrir una carpeta (va a su inicio):
+  se quitó de la lista (v0.3.5); en su lugar queda "Archivos del sistema (Android)" (DocumentsUI), que sí la abre.
   La ruta siempre queda copiada para pegarla si el explorador abre en otro lado. Elección recordada: clave `mgd_explorador_carpetas`.
 - Sin probar aún con cuentas reales: la mayoría de las funciones desde E5 (solo se verificó la compilación).
 
 ## 8. Pendientes / ideas
 - Pruebas reales y correcciones (mandar capturas).
-- Probar "Abrir su carpeta" con Solid Explorer, Files de Google y MiXplorer (v0.3.4): anotar qué opción de cada app abre la carpeta.
+- Probar "Archivos del sistema (Android)" en "Abrir su carpeta" (v0.3.5).
 - Notificaciones con la app cerrada en Windows (tarea programada).
 - Copiar carpetas en "Mover a un disco" para Workspace (hoy usa pasar la propiedad).
 - Reproductor: repo `luchorcompartidos/reproductor`, sobre el núcleo (`NUCLEO.md`).

@@ -19,8 +19,9 @@ def patch(path, old, new):
 
 # Exploradores de archivos conocidos (se listan aunque no declaren que abren carpetas)
 CONOCIDOS = [
+    # Files de Google (com.google.android.apps.nbu.files) no se incluye: ignora la carpeta y abre su inicio.
     "pl.solidexplorer2", "com.mixplorer", "com.mixplorer.silver",
-    "com.google.android.apps.nbu.files", "com.google.android.documentsui", "com.android.documentsui",
+    "com.google.android.documentsui", "com.android.documentsui",
     "com.sec.android.app.myfiles", "com.mi.android.globalFileexplorer", "com.android.fileexplorer",
     "com.coloros.filemanager", "com.oneplus.filemanager", "com.huawei.filemanager",
     "com.motorola.filemanager", "com.lonelycatgames.Xplore", "com.ghisler.android.TotalCommander",
@@ -101,7 +102,10 @@ class MainActivity : FlutterActivity() {
         null
     }
 
-    private fun nombre(pkg: String): String = try {
+    private val sistema = setOf("com.google.android.documentsui", "com.android.documentsui")
+    private val ignorar = setOf("com.google.android.apps.nbu.files") // no abre la carpeta pedida
+
+    private fun nombre(pkg: String): String = if (pkg in sistema) "Archivos del sistema (Android)" else try {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
     } catch (e: Exception) {
         pkg
@@ -134,7 +138,7 @@ class MainActivity : FlutterActivity() {
         for ((variante, base) in variantes) {
             for (c in componentes(base)) {
                 val pkg = c.packageName
-                if (pkg == packageName) continue
+                if (pkg == packageName || pkg in ignorar) continue
                 if (variante == "ruta" && pkg !in conocidos) continue
                 val intent = Intent(base).setComponent(c)
                 if (c in comodines) {

@@ -1,7 +1,7 @@
 # DESARROLLO — Multi G-DRIVE Admin Explorer&Analyzer
 
 Documento para retomar el trabajo en un chat nuevo: **"leé DESARROLLO.md del repo luchorcompartidos/multigdrive"**.
-Última actualización: 23/11/2026 · versión publicada: **v0.3.5**.
+Última actualización: 23/11/2026 · versión publicada: **v0.3.6**.
 
 ## 1. Qué es
 App para administrar desde un solo lugar el almacenamiento de **varias cuentas de Google Drive**:
@@ -101,7 +101,7 @@ Permisos en "Acceso a los datos": `drive` (y `drive.metadata.readonly` del inici
 | E25 | v0.2.2 | Discos virtuales |
 | E26 | v0.2.3 | Unidad de Windows (rclone) |
 | E27 | v0.3.0–v0.3.3 | Equipo ↔ Drive: niveles Exacto/Idéntico/Parecido, copiar rutas y links, abrir carpetas, compartidos conmigo opcionales con dueño |
-| E27 (mejora) | v0.3.4–v0.3.5 | Equipo ↔ Drive: buscador, filtros (tipo, cuenta, carpeta, tamaño, copias) y orden; abrir la carpeta eligiendo el explorador (con "Recordar"); sin Files de Google |
+| E27 (mejora) | v0.3.4–v0.3.6 | Equipo ↔ Drive: buscador, filtros (tipo, cuenta, carpeta, tamaño, copias) y orden; abrir la carpeta eligiendo el explorador (con "Recordar"); sin Files de Google; archivo a la vista (Windows seleccionado, Android nombre copiado + prueba "marcar archivo") |
 
 Plan visual: Whiteboard "Multi G-DRIVE Admin Explorer&Analyzer — MVP y Entregables".
 Guía de Google Cloud: doc "Guía Google Cloud — Multi G-DRIVE Admin (E0)".
@@ -119,12 +119,17 @@ Guía de Google Cloud: doc "Guía Google Cloud — Multi G-DRIVE Admin (E0)".
   su visor genérico. Se descartan las apps que aceptan cualquier archivo (`*/*`), que eran las que abrían el archivo en vez de la carpeta.
   Probado (v0.3.4): Solid Explorer y MiXplorer abren la carpeta. Files de Google no acepta abrir una carpeta (va a su inicio):
   se quitó de la lista (v0.3.5); en su lugar queda "Archivos del sistema (Android)" (DocumentsUI), que sí la abre.
-  La ruta siempre queda copiada para pegarla si el explorador abre en otro lado. Elección recordada: clave `mgd_explorador_carpetas`.
+  Archivo a la vista (v0.3.6): Windows abre con `explorer /select,` (archivo seleccionado). En Android no hay forma estándar
+  de marcar, desplazar hasta el archivo ni iniciar la búsqueda del explorador (solo con un servicio de accesibilidad: descartado
+  por invasivo y frágil). Se copia el NOMBRE del archivo para pegarlo en la lupa, y para Solid Explorer/MiXplorer hay una opción
+  "(marcar archivo, prueba)" que les pasa el archivo como carpeta más extras (`org.openintents.extra.ABSOLUTE_PATH`, `selected_file`, `select`).
+  Si no hay archivo de referencia se copia la ruta de la carpeta. Elección recordada: clave `mgd_explorador_carpetas`.
 - Sin probar aún con cuentas reales: la mayoría de las funciones desde E5 (solo se verificó la compilación).
 
 ## 8. Pendientes / ideas
 - Pruebas reales y correcciones (mandar capturas).
 - Probar "Archivos del sistema (Android)" en "Abrir su carpeta" (v0.3.5).
+- Probar "(marcar archivo, prueba)" en Solid Explorer y MiXplorer y `explorer /select` en Windows (v0.3.6); si la prueba no marca nada en ninguno, quitarla.
 - Notificaciones con la app cerrada en Windows (tarea programada).
 - Copiar carpetas en "Mover a un disco" para Workspace (hoy usa pasar la propiedad).
 - Reproductor: repo `luchorcompartidos/reproductor`, sobre el núcleo (`NUCLEO.md`).

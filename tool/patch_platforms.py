@@ -56,7 +56,8 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mgd/carpetas")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "exploradores" -> result.success(exploradores(call.argument<String>("path") ?: ""))
+                    "exploradores" -> result.success(
+                        exploradores(call.argument<String>("path") ?: "", call.argument<String>("file")))
                     "abrirCon" -> result.success(abrirCon(call.argument<String>("id") ?: ""))
                     else -> result.notImplemented()
                 }
@@ -116,7 +117,7 @@ class MainActivity : FlutterActivity() {
      * nivel 0: declara que abre carpetas · 1: explorador conocido, se le pasa la carpeta ·
      * 2: alternativa genérica (acepta cualquier archivo; puede abrir otra cosa).
      */
-    private fun exploradores(path: String): List<Map<String, Any?>> {
+    private fun exploradores(path: String, archivoRef: String?): List<Map<String, Any?>> {
         opciones.clear()
         val archivo = Uri.fromFile(File(path))
         val doc = docUri(path)
@@ -160,6 +161,21 @@ class MainActivity : FlutterActivity() {
         for (op in genericos.values) {
             if (op.pkg !in mejor && op.pkg in conocidos) lista.add(op)
         }
+        // Prueba: pedirle al explorador que abra la carpeta con el archivo marcado.
+        // No hay una forma estándar: se le pasa el archivo como "carpeta" más extras que usan algunas apps.
+        if (archivoRef != null && archivoRef.isNotEmpty()) {
+            val ref = Uri.fromFile(File(archivoRef))
+            for (op in lista.toList()) {
+                if (op.nivel > 1 || op.pkg !in conocidos || op.pkg in sistema) continue
+                if (lista.any { it.pkg == op.pkg && it.nivel == 3 }) continue
+                val i = Intent(Intent.ACTION_VIEW).setComponent(op.intent.component)
+                    .setDataAndType(ref, "resource/folder")
+                    .putExtra("org.openintents.extra.ABSOLUTE_PATH", archivoRef)
+                    .putExtra("selected_file", archivoRef)
+                    .putExtra("select", archivoRef)
+                lista.add(OpcionCarpeta(op.pkg, "marcar", i, 3))
+            }
+        }
         lista.sortWith(compareBy<OpcionCarpeta>({ it.nivel }, { nombre(it.pkg).lowercase() }))
         return lista.map { op ->
             val id = op.pkg + "|" + op.variante
@@ -167,7 +183,11 @@ class MainActivity : FlutterActivity() {
             mapOf(
                 "id" to id,
                 "pkg" to op.pkg,
-                "label" to nombre(op.pkg) + (if (op.nivel == 2) " (alternativa)" else ""),
+                "label" to nombre(op.pkg) + when (op.nivel) {
+                    2 -> " (alternativa)"
+                    3 -> " (marcar archivo, prueba)"
+                    else -> ""
+                },
                 "nivel" to op.nivel,
                 "icono" to icono(op.pkg),
             )

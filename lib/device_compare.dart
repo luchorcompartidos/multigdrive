@@ -399,16 +399,24 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
   static const _channel = MethodChannel('mgd/carpetas');
   static const _explorerKey = 'mgd_explorador_carpetas';
 
-  /// Abre la carpeta del equipo: Windows en el Explorador; Android pregunta con qué explorador
-  /// (solo los que abren la carpeta, no el archivo) y puede recordar la elección.
-  Future<void> _openFolder(String folder) async {
+  /// Abre la carpeta del equipo con el archivo [file] a la vista si se puede:
+  /// Windows en el Explorador con el archivo seleccionado; Android pregunta con qué explorador
+  /// (solo los que abren la carpeta, no el archivo), puede recordar la elección y copia el nombre
+  /// del archivo para pegarlo en la lupa del explorador.
+  Future<void> _openFolder(String folder, {String? file}) async {
     if (Platform.isWindows) {
-      await launchUrl(Uri.file(folder));
+      if (file != null && await File(file).exists()) {
+        // explorer devuelve código 1 aunque funcione: no se revisa el resultado
+        await Process.start('explorer.exe', ['/select,', file]);
+      } else {
+        await launchUrl(Uri.file(folder));
+      }
       return;
     }
     var apps = <Map<String, dynamic>>[];
     try {
-      final r = await _channel.invokeMethod<List<dynamic>>('exploradores', {'path': folder});
+      final r = await _channel
+          .invokeMethod<List<dynamic>>('exploradores', {'path': folder, 'file': file});
       apps = [for (final e in r ?? const []) Map<String, dynamic>.from(e as Map)];
     } catch (_) {}
     if (!mounted) return;
@@ -420,21 +428,23 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
     final saved = prefs.getString(_explorerKey);
     for (final a in apps) {
       if (a['id'] == saved) {
-        await _launchExplorer(a, folder, remembered: true);
+        await _launchExplorer(a, folder, file: file, remembered: true);
         return;
       }
     }
-    final pick = await _pickExplorer(apps, folder);
+    final pick = await _pickExplorer(apps, file ?? folder);
     if (pick == null) return;
     if (pick.$2) {
       await prefs.setString(_explorerKey, pick.$1['id'] as String);
     }
-    await _launchExplorer(pick.$1, folder, remembered: pick.$2);
+    await _launchExplorer(pick.$1, folder, file: file, remembered: pick.$2);
   }
 
-  Future<void> _launchExplorer(Map<String, dynamic> app, String folder, {bool remembered = false}) async {
-    // La ruta queda copiada por si el explorador abre en otro lado y hay que pegarla.
-    await Clipboard.setData(ClipboardData(text: folder));
+  Future<void> _launchExplorer(Map<String, dynamic> app, String folder,
+      {String? file, bool remembered = false}) async {
+    // Se copia el nombre del archivo (para buscarlo con la lupa del explorador) o, si no hay, la ruta.
+    final name = file?.split(Platform.pathSeparator).last;
+    await Clipboard.setData(ClipboardData(text: name ?? folder));
     var ok = false;
     try {
       ok = await _channel.invokeMethod<bool>('abrirCon', {'id': app['id']}) ?? false;
@@ -446,14 +456,16 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       duration: const Duration(seconds: 6),
       content: Text(ok
-          ? 'Abriendo la carpeta con ${app['label']} (la ruta quedó copiada).'
-          : 'No se pudo abrir con ${app['label']}. La ruta quedó copiada.'),
+          ? (name != null
+              ? 'Abriendo la carpeta con ${app['label']}. "$name" quedó copiado: tocá la lupa y pegalo.'
+              : 'Abriendo la carpeta con ${app['label']} (la ruta quedó copiada).')
+          : 'No se pudo abrir con ${app['label']}. ${name != null ? 'El nombre' : 'La ruta'} quedó copiado.'),
       action: remembered || !ok
           ? SnackBarAction(
               label: 'Elegir otra app',
               onPressed: () async {
                 await (await SharedPreferences.getInstance()).remove(_explorerKey);
-                _openFolder(folder);
+                _openFolder(folder, file: file);
               },
             )
           : null,
@@ -465,6 +477,7 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
     String hint(Map<String, dynamic> a) => switch (a['nivel']) {
           0 => 'Abre carpetas',
           1 => 'Explorador: se le pasa la carpeta',
+          3 => 'Prueba: intenta abrir la carpeta con el archivo marcado (puede abrir el archivo)',
           _ => 'Alternativa: si la otra opción no anda',
         };
     return showModalBottomSheet<(Map<String, dynamic>, bool)>(
@@ -859,7 +872,7 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                 title: Text(d.folder,
                     style: TextStyle(
                         color: Theme.of(ctx).colorScheme.primary, decoration: TextDecoration.underline)),
-                onTap: () => _openFolder(d.folder),
+                onTap: () => _openFolder(d.folder, file: d.path),
                 subtitle: d.name == m.name ? null : Text('como "${d.name}"'),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   _copyBtn('Copiar carpeta', d.folder, 'Carpeta'),
@@ -867,7 +880,7 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                   IconButton(
                     tooltip: 'Abrir carpeta',
                     icon: const Icon(Icons.folder_open, size: 18),
-                    onPressed: () => _openFolder(d.folder),
+                    onPressed: () => _openFolder(d.folder, file: d.path),
                   ),
                 ]),
               ),
@@ -922,7 +935,7 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
               OutlinedButton.icon(
                 icon: const Icon(Icons.folder_open),
                 label: const Text('Abrir su carpeta'),
-                onPressed: () => _openFolder(m.folder),
+                onPressed: () => _openFolder(m.folder, file: m.path),
               ),
               OutlinedButton.icon(
                 icon: const Icon(Icons.open_in_new),
@@ -1093,7 +1106,7 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                   IconButton(
                     tooltip: 'Abrir la carpeta del equipo',
                     icon: const Icon(Icons.folder_open, size: 20),
-                    onPressed: () => _openFolder(m.folder),
+                    onPressed: () => _openFolder(m.folder, file: m.path),
                   ),
                 ]),
                 onTap: () => _details(m),

@@ -105,6 +105,7 @@ class MainActivity : FlutterActivity() {
 
     private val sistema = setOf("com.google.android.documentsui", "com.android.documentsui")
     private val ignorar = setOf("com.google.android.apps.nbu.files") // no abre la carpeta pedida
+    private val sinPrueba = setOf("pl.solidexplorer2") // la prueba "marcar archivo" no sirve ahí
 
     private fun nombre(pkg: String): String = if (pkg in sistema) "Archivos del sistema (Android)" else try {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
@@ -166,7 +167,7 @@ class MainActivity : FlutterActivity() {
         if (archivoRef != null && archivoRef.isNotEmpty()) {
             val ref = Uri.fromFile(File(archivoRef))
             for (op in lista.toList()) {
-                if (op.nivel > 1 || op.pkg !in conocidos || op.pkg in sistema) continue
+                if (op.pkg in sistema || op.pkg in sinPrueba) continue
                 if (lista.any { it.pkg == op.pkg && it.nivel == 3 }) continue
                 val i = Intent(Intent.ACTION_VIEW).setComponent(op.intent.component)
                     .setDataAndType(ref, "resource/folder")
@@ -183,6 +184,7 @@ class MainActivity : FlutterActivity() {
             mapOf(
                 "id" to id,
                 "pkg" to op.pkg,
+                "nombre" to nombre(op.pkg),
                 "label" to nombre(op.pkg) + when (op.nivel) {
                     2 -> " (alternativa)"
                     3 -> " (marcar archivo, prueba)"

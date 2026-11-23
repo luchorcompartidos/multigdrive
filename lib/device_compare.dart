@@ -472,9 +472,27 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
     ));
   }
 
+  /// Qué hace la opción de prueba en cada app (probado en v0.3.6): etiqueta y descripción.
+  static const _pruebas = {
+    'com.amaze.filemanager': ('(Abrir Archivo con...)', 'Abre Ventana para dar paso a "Abrir con..."'),
+    'com.alphainventor.filemanager': (
+      '(Reproducir Audio en Carpeta)',
+      'Abre la Carpeta y Reproduce Automáticamente al archivo de Audio'
+    ),
+    'com.lonelycatgames.Xplore': (
+      '(Abrir Archivo en carpeta, con...)',
+      'Abre Cuadro de Diálogo "Abrir con..." (Reproducir) y la Carpeta en 2do Plano'
+    ),
+  };
+
   Future<(Map<String, dynamic>, bool)?> _pickExplorer(List<Map<String, dynamic>> apps, String folder) {
     var remember = false;
+    for (final a in apps) {
+      final p = _pruebas[a['pkg']];
+      if (a['nivel'] == 3 && p != null) a['label'] = '${a['nombre']} ${p.$1}';
+    }
     String hint(Map<String, dynamic> a) => switch (a['nivel']) {
+          3 when _pruebas.containsKey(a['pkg']) => _pruebas[a['pkg']]!.$2,
           0 => 'Abre carpetas',
           1 => 'Explorador: se le pasa la carpeta',
           3 => 'Prueba: intenta abrir la carpeta con el archivo marcado (puede abrir el archivo)',

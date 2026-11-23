@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
@@ -10,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'accounts.dart';
 import 'actions.dart';
@@ -34,7 +36,11 @@ class LocalMatch {
   final MatchLevel level;
   final List<FileRef> drive;
   final String key; // mismo contenido = misma clave (huella, o nombre+tamaño si no hay huella)
-  LocalMatch(this.path, this.size, this.level, this.drive, this.key);
+  final DateTime modified;
+  final String root; // carpeta elegida en la que se encontró
+  LocalMatch(this.path, this.size, this.level, this.drive, this.key,
+      {DateTime? modified, this.root = ''})
+      : modified = modified ?? DateTime.fromMillisecondsSinceEpoch(0);
 
   String get name => path.split(Platform.pathSeparator).last;
   String get folder {
@@ -79,6 +85,48 @@ String _base(String name) {
   return normalize(i > 0 ? name.substring(0, i) : name);
 }
 
+enum FileKind { image, video, audio, doc, archive, other }
+
+const kindNames = {
+  FileKind.image: 'Imágenes',
+  FileKind.video: 'Videos',
+  FileKind.audio: 'Audio',
+  FileKind.doc: 'Documentos',
+  FileKind.archive: 'Comprimidos / APK',
+  FileKind.other: 'Otros',
+};
+
+const _exts = {
+  FileKind.image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'bmp', 'tif', 'tiff', 'raw', 'dng', 'svg'],
+  FileKind.video: ['mp4', 'mov', 'mkv', 'avi', '3gp', 'webm', 'm4v', 'wmv', 'mts', 'flv'],
+  FileKind.audio: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'amr', 'mid'],
+  FileKind.doc: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'odt', 'ods', 'odp', 'rtf', 'md', 'epub', 'html', 'json', 'xml'],
+  FileKind.archive: ['zip', 'rar', '7z', 'tar', 'gz', 'apk', 'xapk', 'iso', 'exe', 'msi'],
+};
+
+FileKind kindOf(String name) {
+  final i = name.lastIndexOf('.');
+  if (i < 0) return FileKind.other;
+  final e = name.substring(i + 1).toLowerCase();
+  for (final k in _exts.entries) {
+    if (k.value.contains(e)) return k.key;
+  }
+  return FileKind.other;
+}
+
+enum MatchSort { size, name, folder, modified, level, account }
+
+const matchSortNames = {
+  MatchSort.size: 'Tamaño',
+  MatchSort.name: 'Nombre',
+  MatchSort.folder: 'Carpeta del equipo',
+  MatchSort.modified: 'Fecha de modificación',
+  MatchSort.level: 'Nivel de coincidencia',
+  MatchSort.account: 'Cuenta de Drive',
+};
+
+const _sizeSteps = {0: 'Cualquiera', 1 << 20: '1 MB', 10 << 20: '10 MB', 100 << 20: '100 MB', 1 << 30: '1 GB'};
+
 /// Carpetas sugeridas del equipo.
 List<String> suggestedFolders() {
   if (kIsWeb) return [];
@@ -122,6 +170,23 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
   List<LocalMatch>? _matches;
   MatchLevel? _filter;
   final Set<LocalMatch> _sel = {};
+  // Buscador, filtros y orden de los resultados
+  final _qCtrl = TextEditingController();
+  String _q = '';
+  MatchSort _sort = MatchSort.size;
+  bool _desc = true;
+  final Set<FileKind> _kinds = {};
+  final Set<String> _accounts = {}; // emails
+  String? _root;
+  int _minSize = 0;
+  bool _multiOnly = false; // solo con más de una copia en el equipo
+  final Map<LocalMatch, String> _hay = {}; // texto para buscar (caché)
+
+  @override
+  void dispose() {
+    _qCtrl.dispose();
+    super.dispose();
+  }
 
   Future<bool> _permission() async {
     if (!Platform.isAndroid) return true;
@@ -209,7 +274,8 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
             if (same.isNotEmpty) {
               final exact = same.any((c) => c.item.name.toLowerCase() == name.toLowerCase());
               out.add(LocalMatch(
-                  path, st.size, exact ? MatchLevel.exact : MatchLevel.identical, same, hash));
+                  path, st.size, exact ? MatchLevel.exact : MatchLevel.identical, same, hash,
+                  modified: st.modified, root: folder));
               continue;
             }
           }
@@ -217,7 +283,8 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
               .where((c) => c.item.md5 == null && _base(c.item.name) == _base(name))
               .toList();
           if (similar.isNotEmpty) {
-            out.add(LocalMatch(path, st.size, MatchLevel.similar, similar, 'sim:${_base(name)}:${st.size}'));
+            out.add(LocalMatch(path, st.size, MatchLevel.similar, similar, 'sim:${_base(name)}:${st.size}',
+                modified: st.modified, root: folder));
           }
         }
       } catch (_) {}
@@ -227,6 +294,7 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
     if (mounted) {
       setState(() {
         _matches = out;
+        _hay.clear();
         _running = false;
         _status = '$seen archivos revisados · $hashed huellas nuevas';
       });
@@ -329,20 +397,113 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
   }
 
   static const _channel = MethodChannel('mgd/carpetas');
+  static const _explorerKey = 'mgd_explorador_carpetas';
 
-  /// Abre la carpeta del equipo: Windows en el Explorador; Android ofrece los exploradores instalados.
+  /// Abre la carpeta del equipo: Windows en el Explorador; Android pregunta con qué explorador
+  /// (solo los que abren la carpeta, no el archivo) y puede recordar la elección.
   Future<void> _openFolder(String folder) async {
     if (Platform.isWindows) {
       await launchUrl(Uri.file(folder));
       return;
     }
-    bool ok = false;
+    var apps = <Map<String, dynamic>>[];
     try {
-      ok = await _channel.invokeMethod<bool>('abrir', {'path': folder}) ?? false;
+      final r = await _channel.invokeMethod<List<dynamic>>('exploradores', {'path': folder});
+      apps = [for (final e in r ?? const []) Map<String, dynamic>.from(e as Map)];
     } catch (_) {}
-    if (!ok) {
-      await _copy(folder, 'No hay un explorador compatible. Ruta');
+    if (!mounted) return;
+    if (apps.isEmpty) {
+      await _copy(folder, 'No encontré un explorador de archivos compatible. Ruta');
+      return;
     }
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_explorerKey);
+    for (final a in apps) {
+      if (a['id'] == saved) {
+        await _launchExplorer(a, folder, remembered: true);
+        return;
+      }
+    }
+    final pick = await _pickExplorer(apps, folder);
+    if (pick == null) return;
+    if (pick.$2) {
+      await prefs.setString(_explorerKey, pick.$1['id'] as String);
+    }
+    await _launchExplorer(pick.$1, folder, remembered: pick.$2);
+  }
+
+  Future<void> _launchExplorer(Map<String, dynamic> app, String folder, {bool remembered = false}) async {
+    // La ruta queda copiada por si el explorador abre en otro lado y hay que pegarla.
+    await Clipboard.setData(ClipboardData(text: folder));
+    var ok = false;
+    try {
+      ok = await _channel.invokeMethod<bool>('abrirCon', {'id': app['id']}) ?? false;
+    } catch (_) {}
+    if (!ok && remembered) {
+      await (await SharedPreferences.getInstance()).remove(_explorerKey);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: const Duration(seconds: 6),
+      content: Text(ok
+          ? 'Abriendo la carpeta con ${app['label']} (la ruta quedó copiada).'
+          : 'No se pudo abrir con ${app['label']}. La ruta quedó copiada.'),
+      action: remembered || !ok
+          ? SnackBarAction(
+              label: 'Elegir otra app',
+              onPressed: () async {
+                await (await SharedPreferences.getInstance()).remove(_explorerKey);
+                _openFolder(folder);
+              },
+            )
+          : null,
+    ));
+  }
+
+  Future<(Map<String, dynamic>, bool)?> _pickExplorer(List<Map<String, dynamic>> apps, String folder) {
+    var remember = false;
+    String hint(Map<String, dynamic> a) => switch (a['nivel']) {
+          0 => 'Abre carpetas',
+          1 => 'Explorador: se le pasa la carpeta',
+          _ => 'Alternativa: si la otra opción no anda',
+        };
+    return showModalBottomSheet<(Map<String, dynamic>, bool)>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.8),
+            child: ListView(shrinkWrap: true, children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Text('Abrir la carpeta con…', style: Theme.of(ctx).textTheme.titleMedium),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(folder, style: Theme.of(ctx).textTheme.bodySmall),
+              ),
+              for (final a in apps)
+                ListTile(
+                  leading: a['icono'] is Uint8List
+                      ? Image.memory(a['icono'] as Uint8List, width: 36, height: 36)
+                      : const Icon(Icons.folder),
+                  title: Text('${a['label']}'),
+                  subtitle: Text(hint(a)),
+                  onTap: () => Navigator.pop(ctx, (a, remember)),
+                ),
+              CheckboxListTile(
+                value: remember,
+                onChanged: (v) => setSheet(() => remember = v ?? false),
+                title: const Text('Recordar mi elección'),
+                subtitle: const Text('Se puede cambiar con "Elegir otra app" en el aviso.'),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _copyBtn(String tooltip, String text, String what) => IconButton(
@@ -355,8 +516,250 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
       .where((m) => _includeShared || !_onlyShared(m))
       .toList();
 
-  List<LocalMatch> get _visible =>
-      _all.where((m) => _filter == null || m.level == _filter).toList();
+  String _hayOf(LocalMatch m) => _hay[m] ??= normalize([
+        m.path,
+        for (final f in m.drive) '${f.item.name} ${f.account.title} ${f.account.email} ${_drivePath(f)}',
+      ].join(' '));
+
+  int get _activeFilters =>
+      _kinds.length + _accounts.length + (_root != null ? 1 : 0) + (_minSize > 0 ? 1 : 0) + (_multiOnly ? 1 : 0);
+
+  List<LocalMatch> get _visible {
+    final words = normalize(_q).split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final copies = <String, int>{};
+    if (_multiOnly) {
+      for (final m in _matches ?? const <LocalMatch>[]) {
+        copies[m.key] = (copies[m.key] ?? 0) + 1;
+      }
+    }
+    final out = _all.where((m) {
+      if (_filter != null && m.level != _filter) return false;
+      if (_minSize > 0 && m.size < _minSize) return false;
+      if (_kinds.isNotEmpty && !_kinds.contains(kindOf(m.name))) return false;
+      if (_root != null && m.root != _root) return false;
+      if (_accounts.isNotEmpty && !_shown(m).any((f) => _accounts.contains(f.account.email))) return false;
+      if (_multiOnly && (copies[m.key] ?? 0) < 2) return false;
+      if (words.isNotEmpty) {
+        final hay = _hayOf(m);
+        if (!words.every(hay.contains)) return false;
+      }
+      return true;
+    }).toList();
+    String acc(LocalMatch m) {
+      final s = _shown(m);
+      return s.isEmpty ? '' : normalize(s.first.account.title);
+    }
+
+    int cmp(LocalMatch a, LocalMatch b) => switch (_sort) {
+          MatchSort.size => a.size.compareTo(b.size),
+          MatchSort.name => normalize(a.name).compareTo(normalize(b.name)),
+          MatchSort.folder => normalize(a.folder).compareTo(normalize(b.folder)),
+          MatchSort.modified => a.modified.compareTo(b.modified),
+          MatchSort.level => b.level.index.compareTo(a.level.index),
+          MatchSort.account => acc(a).compareTo(acc(b)),
+        };
+    out.sort((a, b) {
+      final c = _desc ? cmp(b, a) : cmp(a, b);
+      return c != 0 ? c : b.size.compareTo(a.size);
+    });
+    return out;
+  }
+
+  /// Cambia búsqueda/filtros/orden y deja seleccionados solo los que siguen a la vista.
+  void _update(VoidCallback fn) {
+    setState(() {
+      fn();
+      final v = _visible.toSet();
+      _sel.retainWhere(v.contains);
+    });
+  }
+
+  void _clearFilters() => _update(() {
+        _kinds.clear();
+        _accounts.clear();
+        _root = null;
+        _minSize = 0;
+        _multiOnly = false;
+        _filter = null;
+        _q = '';
+        _qCtrl.clear();
+      });
+
+  void _filtersSheet() {
+    final all = _all;
+    final roots = {for (final m in all) m.root}.where((r) => r.isNotEmpty).toList()..sort();
+    final emails = {for (final m in all) for (final f in _shown(m)) f.account.email};
+    final accounts = DriveActions.store.accounts.where((a) => emails.contains(a.email)).toList();
+    final kindCount = <FileKind, int>{};
+    for (final m in all) {
+      final k = kindOf(m.name);
+      kindCount[k] = (kindCount[k] ?? 0) + 1;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        void change(VoidCallback fn) {
+          _update(fn);
+          setSheet(() {});
+        }
+
+        final t = Theme.of(ctx).textTheme;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.85),
+            child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
+              Text('Filtros · ${_visible.length} de ${all.length}', style: t.titleMedium),
+              const SizedBox(height: 12),
+              Text('Tipo de archivo', style: t.titleSmall),
+              Wrap(spacing: 6, runSpacing: 4, children: [
+                for (final k in FileKind.values)
+                  if ((kindCount[k] ?? 0) > 0)
+                    FilterChip(
+                      label: Text('${kindNames[k]} (${kindCount[k]})'),
+                      selected: _kinds.contains(k),
+                      onSelected: (v) => change(() => v ? _kinds.add(k) : _kinds.remove(k)),
+                    ),
+              ]),
+              const SizedBox(height: 12),
+              Text('Cuenta de Drive', style: t.titleSmall),
+              Wrap(spacing: 6, runSpacing: 4, children: [
+                for (final a in accounts)
+                  FilterChip(
+                    avatar: CircleAvatar(backgroundColor: Color(a.color), radius: 6),
+                    label: Text(a.title),
+                    selected: _accounts.contains(a.email),
+                    onSelected: (v) => change(() => v ? _accounts.add(a.email) : _accounts.remove(a.email)),
+                  ),
+              ]),
+              if (roots.length > 1) ...[
+                const SizedBox(height: 12),
+                Text('Carpeta del equipo', style: t.titleSmall),
+                Wrap(spacing: 6, runSpacing: 4, children: [
+                  ChoiceChip(
+                    label: const Text('Todas'),
+                    selected: _root == null,
+                    onSelected: (_) => change(() => _root = null),
+                  ),
+                  for (final r in roots)
+                    ChoiceChip(
+                      label: Text(r.split(Platform.pathSeparator).last),
+                      selected: _root == r,
+                      onSelected: (_) => change(() => _root = r),
+                    ),
+                ]),
+              ],
+              const SizedBox(height: 12),
+              Text('Tamaño mínimo', style: t.titleSmall),
+              Wrap(spacing: 6, runSpacing: 4, children: [
+                for (final e in _sizeSteps.entries)
+                  ChoiceChip(
+                    label: Text(e.value),
+                    selected: _minSize == e.key,
+                    onSelected: (_) => change(() => _minSize = e.key),
+                  ),
+              ]),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Solo con más de una copia en el equipo'),
+                value: _multiOnly,
+                onChanged: (v) => change(() => _multiOnly = v),
+              ),
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                TextButton(
+                  onPressed: () => change(() {
+                    _kinds.clear();
+                    _accounts.clear();
+                    _root = null;
+                    _minSize = 0;
+                    _multiOnly = false;
+                  }),
+                  child: const Text('Limpiar filtros'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Listo')),
+              ]),
+            ]),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _toolbar(List<LocalMatch> list, List<LocalMatch> all) {
+    final filtered = list.length != all.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        TextField(
+          controller: _qCtrl,
+          decoration: InputDecoration(
+            isDense: true,
+            border: const OutlineInputBorder(),
+            prefixIcon: const Icon(Icons.search),
+            hintText: 'Buscar por nombre, carpeta o cuenta',
+            suffixIcon: _q.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Borrar búsqueda',
+                    icon: const Icon(Icons.clear),
+                    onPressed: () => _update(() {
+                      _qCtrl.clear();
+                      _q = '';
+                    }),
+                  ),
+          ),
+          onChanged: (v) => _update(() => _q = v),
+        ),
+        const SizedBox(height: 4),
+        Wrap(spacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          PopupMenuButton<MatchSort>(
+            tooltip: 'Ordenar',
+            initialValue: _sort,
+            onSelected: (s) => _update(() {
+              if (s == _sort) {
+                _desc = !_desc;
+              } else {
+                _sort = s;
+                _desc = s == MatchSort.size || s == MatchSort.modified;
+              }
+            }),
+            itemBuilder: (_) => [
+              for (final s in MatchSort.values) PopupMenuItem(value: s, child: Text(matchSortNames[s]!)),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.sort, size: 20),
+                const SizedBox(width: 4),
+                Text('Ordenar: ${matchSortNames[_sort]}'),
+              ]),
+            ),
+          ),
+          IconButton(
+            tooltip: _desc ? 'De mayor a menor (tocar para invertir)' : 'De menor a mayor (tocar para invertir)',
+            icon: Icon(_desc ? Icons.arrow_downward : Icons.arrow_upward, size: 20),
+            onPressed: () => _update(() => _desc = !_desc),
+          ),
+          TextButton.icon(
+            icon: Badge(
+              isLabelVisible: _activeFilters > 0,
+              label: Text('$_activeFilters'),
+              child: const Icon(Icons.filter_list),
+            ),
+            label: const Text('Filtros'),
+            onPressed: _filtersSheet,
+          ),
+          if (_activeFilters > 0 || _q.isNotEmpty || _filter != null)
+            TextButton(onPressed: _clearFilters, child: const Text('Limpiar')),
+        ]),
+        if (filtered)
+          Text('Mostrando ${list.length} (${formatBytes(list.fold<int>(0, (s, m) => s + m.size))})',
+              style: Theme.of(context).textTheme.bodySmall),
+      ]),
+    );
+  }
 
   Future<void> _deleteLocal(List<LocalMatch> list) async {
     final risky = list.where(_onlyShared).toList();
@@ -517,8 +920,13 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                 onPressed: () => _copy(_summary(m), 'Resumen'),
               ),
               OutlinedButton.icon(
+                icon: const Icon(Icons.folder_open),
+                label: const Text('Abrir su carpeta'),
+                onPressed: () => _openFolder(m.folder),
+              ),
+              OutlinedButton.icon(
                 icon: const Icon(Icons.open_in_new),
-                label: const Text('Abrir el del equipo'),
+                label: const Text('Abrir el archivo'),
                 onPressed: () => OpenFilex.open(m.path),
               ),
               OutlinedButton.icon(
@@ -622,7 +1030,7 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
               subtitle: Text('No son tuyos ni ocupan tu espacio; el dueño puede quitarte el acceso.'
                   '${hiddenShared > 0 && !_includeShared ? ' Hay $hiddenShared ocultos.' : ''}'),
               value: _includeShared,
-              onChanged: (v) => setState(() {
+              onChanged: (v) => _update(() {
                 _includeShared = v;
                 _sel.clear();
               }),
@@ -632,18 +1040,19 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
               child: Text('${all.length} archivos del $device (${formatBytes(bytesOf(all))}) también están en Drive',
                   style: t.titleSmall),
             ),
+            _toolbar(list, all),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Wrap(spacing: 6, runSpacing: 4, children: [
                 ChoiceChip(
                     label: Text('Todos (${all.length})'),
                     selected: _filter == null,
-                    onSelected: (_) => setState(() => _filter = null)),
+                    onSelected: (_) => _update(() => _filter = null)),
                 for (final l in MatchLevel.values)
                   ChoiceChip(
                     label: Text('${levelNames[l]} (${all.where((m) => m.level == l).length})'),
                     selected: _filter == l,
-                    onSelected: (_) => setState(() => _filter = l),
+                    onSelected: (_) => _update(() => _filter = l),
                   ),
               ]),
             ),
@@ -655,6 +1064,11 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                       setState(() => _sel.length == list.length ? _sel.clear() : _sel.addAll(list)),
                   child: Text(_sel.length == list.length ? 'Ninguno' : 'Seleccionar todos'),
                 ),
+              ),
+            if (list.isEmpty && all.isNotEmpty)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Ningún resultado con esta búsqueda o estos filtros.'),
               ),
             for (final m in list.take(500))
               ListTile(
@@ -674,9 +1088,21 @@ class _DeviceComparePageState extends State<DeviceComparePage> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 isThreeLine: true,
-                trailing: Text(formatBytes(m.size)),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(formatBytes(m.size)),
+                  IconButton(
+                    tooltip: 'Abrir la carpeta del equipo',
+                    icon: const Icon(Icons.folder_open, size: 20),
+                    onPressed: () => _openFolder(m.folder),
+                  ),
+                ]),
                 onTap: () => _details(m),
                 onLongPress: () => _copy(m.name, 'Nombre'),
+              ),
+            if (list.length > 500)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Se muestran los primeros 500: usá el buscador o los filtros para ver el resto.'),
               ),
           ],
           const SizedBox(height: 80),

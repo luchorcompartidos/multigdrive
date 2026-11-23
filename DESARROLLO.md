@@ -1,7 +1,7 @@
 # DESARROLLO — Multi G-DRIVE Admin Explorer&Analyzer
 
 Documento para retomar el trabajo en un chat nuevo: **"leé DESARROLLO.md del repo luchorcompartidos/multigdrive"**.
-Última actualización: 22/11/2026 · versión publicada: **v0.3.3**.
+Última actualización: 23/11/2026 · versión publicada: **v0.3.4**.
 
 ## 1. Qué es
 App para administrar desde un solo lugar el almacenamiento de **varias cuentas de Google Drive**:
@@ -34,7 +34,7 @@ Flutter (un solo código). Las carpetas `android/`, `windows/` y `web/` **no est
 | `lib/balancer.dart` | Balanceador de espacio entre cuentas |
 | `lib/unified.dart`, `lib/upload.dart`, `lib/disks.dart` | Mi Drive total, subir archivos, discos virtuales |
 | `lib/rclone.dart` | Unidad de Windows (rclone + WinFsp) |
-| `lib/device_compare.dart` | Equipo (Android/Windows) ↔ Drive |
+| `lib/device_compare.dart` | Equipo (Android/Windows) ↔ Drive: comparación, buscador, filtros, orden, abrir carpeta |
 | `lib/offline.dart`, `lib/offline_storage/` | Archivos sin conexión |
 | `lib/history.dart` | Historial y deshacer |
 | `lib/audit.dart` | Auditoría de compartidos |
@@ -43,7 +43,7 @@ Flutter (un solo código). Las carpetas `android/`, `windows/` y `web/` **no est
 | `lib/evolution.dart` | Evolución del uso (foto diaria) |
 | `lib/background.dart` | Revisión diaria con la app cerrada (Android, workmanager + notificaciones) |
 | `lib/updates.dart` | Aviso de versión nueva y Changelog desde Releases |
-| `tool/patch_platforms.py` | Permisos Android, intent de vuelta OAuth, MainActivity (abrir carpetas), firma, desugaring, web |
+| `tool/patch_platforms.py` | Permisos Android, intent de vuelta OAuth, MainActivity (selector de exploradores para abrir carpetas), `<queries>` de exploradores, firma, desugaring, web |
 | `installer/multigdrive.iss` | Instalador de Windows (Inno Setup) |
 | `NUCLEO.md` | Qué partes reutilizar en otras apps (Reproductor) |
 
@@ -101,6 +101,7 @@ Permisos en "Acceso a los datos": `drive` (y `drive.metadata.readonly` del inici
 | E25 | v0.2.2 | Discos virtuales |
 | E26 | v0.2.3 | Unidad de Windows (rclone) |
 | E27 | v0.3.0–v0.3.3 | Equipo ↔ Drive: niveles Exacto/Idéntico/Parecido, copiar rutas y links, abrir carpetas, compartidos conmigo opcionales con dueño |
+| E27 (mejora) | v0.3.4 | Equipo ↔ Drive: buscador, filtros (tipo, cuenta, carpeta, tamaño, copias) y orden; abrir la carpeta eligiendo el explorador (con "Recordar") |
 
 Plan visual: Whiteboard "Multi G-DRIVE Admin Explorer&Analyzer — MVP y Entregables".
 Guía de Google Cloud: doc "Guía Google Cloud — Multi G-DRIVE Admin (E0)".
@@ -112,10 +113,16 @@ Guía de Google Cloud: doc "Guía Google Cloud — Multi G-DRIVE Admin (E0)".
 - Un archivo no se reparte entre cuentas (Mi Drive total / discos).
 - Límite de 10 sesiones de Google por navegador: tras conectar una cuenta se puede cerrar su sesión en el navegador.
 - La marca "sin conexión" de la app oficial de Drive no es legible: la app tiene su propia sección Sin conexión.
+- Android no tiene una forma estándar de abrir una carpeta en un explorador. La app arma su propio selector "Abrir la carpeta con…":
+  primero las apps que declaran abrir carpetas (`resource/folder`, `inode/directory`, `vnd.android.document/directory`, `file://`),
+  luego exploradores conocidos (Solid Explorer, MiXplorer, Files de Google…) a los que se les pasa la carpeta, y como "alternativa"
+  su visor genérico. Se descartan las apps que aceptan cualquier archivo (`*/*`), que eran las que abrían el archivo en vez de la carpeta.
+  La ruta siempre queda copiada para pegarla si el explorador abre en otro lado. Elección recordada: clave `mgd_explorador_carpetas`.
 - Sin probar aún con cuentas reales: la mayoría de las funciones desde E5 (solo se verificó la compilación).
 
 ## 8. Pendientes / ideas
 - Pruebas reales y correcciones (mandar capturas).
+- Probar "Abrir su carpeta" con Solid Explorer, Files de Google y MiXplorer (v0.3.4): anotar qué opción de cada app abre la carpeta.
 - Notificaciones con la app cerrada en Windows (tarea programada).
 - Copiar carpetas en "Mover a un disco" para Workspace (hoy usa pasar la propiedad).
 - Reproductor: repo `luchorcompartidos/reproductor`, sobre el núcleo (`NUCLEO.md`).

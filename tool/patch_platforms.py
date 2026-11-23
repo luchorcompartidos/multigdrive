@@ -17,57 +17,193 @@ def patch(path, old, new):
     print(f"OK {path}")
 
 
+# Exploradores de archivos conocidos (se listan aunque no declaren que abren carpetas)
+CONOCIDOS = [
+    "pl.solidexplorer2", "com.mixplorer", "com.mixplorer.silver",
+    "com.google.android.apps.nbu.files", "com.google.android.documentsui", "com.android.documentsui",
+    "com.sec.android.app.myfiles", "com.mi.android.globalFileexplorer", "com.android.fileexplorer",
+    "com.coloros.filemanager", "com.oneplus.filemanager", "com.huawei.filemanager",
+    "com.motorola.filemanager", "com.lonelycatgames.Xplore", "com.ghisler.android.TotalCommander",
+    "com.alphainventor.filemanager", "nextapp.fx", "com.amaze.filemanager",
+    "me.zhanghai.android.files", "com.estrongs.android.pop", "bin.mt.plus",
+]
+
 MAIN_ACTIVITY = """package com.luchorcompartidos.multigdrive
 
-import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.net.Uri
 import android.os.StrictMode
+import android.provider.DocumentsContract
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
+import java.io.File
+
+private data class OpcionCarpeta(val pkg: String, val variante: String, val intent: Intent, val nivel: Int)
 
 class MainActivity : FlutterActivity() {
+    private val opciones = mutableMapOf<String, Intent>()
+    private val conocidos = listOf(__CONOCIDOS__)
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mgd/carpetas")
             .setMethodCallHandler { call, result ->
-                if (call.method == "abrir") {
-                    result.success(abrirCarpeta(call.argument<String>("path") ?: ""))
-                } else {
-                    result.notImplemented()
+                when (call.method) {
+                    "exploradores" -> result.success(exploradores(call.argument<String>("path") ?: ""))
+                    "abrirCon" -> result.success(abrirCon(call.argument<String>("id") ?: ""))
+                    else -> result.notImplemented()
                 }
             }
     }
 
-    /** Ofrece abrir la carpeta con los exploradores de archivos instalados. */
-    private fun abrirCarpeta(path: String): Boolean {
-        val rel = path.removePrefix("/storage/emulated/0").trimStart('/')
-        val doc = Uri.parse(
-            "content://com.android.externalstorage.documents/document/" + Uri.encode("primary:$rel")
+    /** content://com.android.externalstorage.documents/document/primary:DCIM/Camera (o la tarjeta SD) */
+    private fun docUri(path: String): Uri? {
+        val m = Regex("^/storage/([^/]+)/?(.*)").find(path) ?: return null
+        var vol = m.groupValues[1]
+        var rel = m.groupValues[2]
+        if (vol == "emulated") {
+            val p = rel.split("/", limit = 2)
+            rel = if (p.size > 1) p[1] else ""
+            vol = "primary"
+        }
+        return DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents", vol + ":" + rel.trimEnd('/'))
+    }
+
+    private fun ver(uri: Uri, tipo: String?): Intent {
+        val i = Intent(Intent.ACTION_VIEW)
+        if (tipo == null) i.data = uri else i.setDataAndType(uri, tipo)
+        return i
+    }
+
+    private fun componentes(i: Intent): List<ComponentName> = try {
+        packageManager.queryIntentActivities(i, PackageManager.MATCH_DEFAULT_ONLY)
+            .map { ComponentName(it.activityInfo.packageName, it.activityInfo.name) }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun icono(pkg: String): ByteArray? = try {
+        val d = packageManager.getApplicationIcon(pkg)
+        val b = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, 96, 96)
+        d.draw(Canvas(b))
+        val out = ByteArrayOutputStream()
+        b.compress(Bitmap.CompressFormat.PNG, 100, out)
+        out.toByteArray()
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun nombre(pkg: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    } catch (e: Exception) {
+        pkg
+    }
+
+    /**
+     * Exploradores instalados que pueden abrir la CARPETA (no el archivo).
+     * nivel 0: declara que abre carpetas · 1: explorador conocido, se le pasa la carpeta ·
+     * 2: alternativa genérica (acepta cualquier archivo; puede abrir otra cosa).
+     */
+    private fun exploradores(path: String): List<Map<String, Any?>> {
+        opciones.clear()
+        val archivo = Uri.fromFile(File(path))
+        val doc = docUri(path)
+        val variantes = mutableListOf(
+            "carpeta" to ver(archivo, "resource/folder"),
+            "inodo" to ver(archivo, "inode/directory"),
         )
-        val porDocumentos = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(doc, "vnd.android.document/directory")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        val porRuta = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(Uri.parse("file://$path"), "resource/folder")
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (doc != null) variantes.add("documento" to ver(doc, DocumentsContract.Document.MIME_TYPE_DIR))
+        variantes.add("directorio" to ver(archivo, DocumentsContract.Document.MIME_TYPE_DIR))
+        variantes.add("ruta" to ver(archivo, null))
+
+        // Las apps que aceptan cualquier tipo (*/*) tratarían la carpeta como un archivo
+        val prueba = "application/x-mgd-prueba"
+        val comodines = (componentes(ver(archivo, prueba)) +
+            (if (doc != null) componentes(ver(doc, prueba)) else emptyList())).toSet()
+
+        val mejor = linkedMapOf<String, OpcionCarpeta>()
+        val genericos = linkedMapOf<String, OpcionCarpeta>()
+        for ((variante, base) in variantes) {
+            for (c in componentes(base)) {
+                val pkg = c.packageName
+                if (pkg == packageName) continue
+                if (variante == "ruta" && pkg !in conocidos) continue
+                val intent = Intent(base).setComponent(c)
+                if (c in comodines) {
+                    if (pkg !in genericos) genericos[pkg] = OpcionCarpeta(pkg, "generico", intent, 2)
+                } else if (pkg !in mejor) {
+                    mejor[pkg] = OpcionCarpeta(pkg, variante, intent, 0)
+                }
+            }
+        }
+        val lista = mutableListOf<OpcionCarpeta>()
+        lista.addAll(mejor.values)
+        for (pkg in conocidos) {
+            if (pkg in mejor) continue
+            val lanzar = packageManager.getLaunchIntentForPackage(pkg) ?: continue
+            val i = Intent(Intent.ACTION_VIEW).setComponent(lanzar.component)
+                .setDataAndType(archivo, "resource/folder")
+            lista.add(OpcionCarpeta(pkg, "inicio", i, 1))
+        }
+        for (op in genericos.values) {
+            if (op.pkg !in mejor && op.pkg in conocidos) lista.add(op)
+        }
+        lista.sortWith(compareBy<OpcionCarpeta>({ it.nivel }, { nombre(it.pkg).lowercase() }))
+        return lista.map { op ->
+            val id = op.pkg + "|" + op.variante
+            opciones[id] = op.intent
+            mapOf(
+                "id" to id,
+                "pkg" to op.pkg,
+                "label" to nombre(op.pkg) + (if (op.nivel == 2) " (alternativa)" else ""),
+                "nivel" to op.nivel,
+                "icono" to icono(op.pkg),
+            )
+        }
+    }
+
+    private fun abrirCon(id: String): Boolean {
+        val i = opciones[id] ?: return false
         // Algunos exploradores solo aceptan rutas "file://"
         StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
-        val chooser = Intent.createChooser(porDocumentos, "Abrir carpeta con…")
-            .putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(porRuta))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
-            startActivity(chooser)
+            startActivity(Intent(i).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             true
-        } catch (e: ActivityNotFoundException) {
-            false
         } catch (e: Exception) {
             false
         }
     }
 }
-"""
+""".replace("__CONOCIDOS__", ", ".join('"%s"' % p for p in CONOCIDOS))
+
+QUERIES = "\n".join(
+    ['        <intent><action android:name="android.intent.action.VIEW" /><data android:mimeType="%s" /></intent>' % t
+     for t in ["resource/folder", "inode/directory", "vnd.android.document/directory", "application/x-mgd-prueba"]]
+    + ['        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="file" /></intent>']
+    + ['        <package android:name="%s" />' % p for p in CONOCIDOS]
+)
+
+
+def queries(m):
+    """Android 11+: sin esto la app no "ve" los exploradores instalados."""
+    s = open(m, encoding="utf-8").read()
+    if "x-mgd-prueba" in s:
+        return
+    if "<queries>" in s:
+        s = s.replace("<queries>", "<queries>\n" + QUERIES, 1)
+    else:
+        s = s.replace("<application", "<queries>\n" + QUERIES + "\n    </queries>\n    <application", 1)
+    open(m, "w", encoding="utf-8").write(s)
+    print(f"OK {m} (queries)")
+
 
 
 def android():
@@ -95,6 +231,7 @@ def android():
     for ma in glob.glob("android/app/src/main/kotlin/**/MainActivity.kt", recursive=True):
         open(ma, "w", encoding="utf-8").write(MAIN_ACTIVITY)
         print(f"OK {ma}")
+    queries(m)
     desugar()
     # Vuelta del inicio de sesión: com.luchorcompartidos.multigdrive://oauth
     patch(m, "</activity>", f"""    <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
